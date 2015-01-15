@@ -1,0 +1,20 @@
+<package>
+  <description brief="stuck">
+
+     stuck
+
+  </description>
+  <author>Alex</author>
+  <license>BSD</license>
+  <review status="unreviewed" notes=""/>
+  <url>http://ros.org/wiki/stuck</url>
+  <depend package="sensor_msgs" />
+  <depend package="cv_bridge" />
+  <depend package="roscpp" />
+  <depend package="std_msgs" />
+  <depend package="image_transport" />
+  <depend package="irat_msgs" />
+  
+</package>
+
+
