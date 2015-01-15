@@ -1,0 +1,17 @@
+<package>
+  <description brief="keyboard_control">
+
+     keyboard_control
+
+  </description>
+  <author>quadcore</author>
+  <license>BSD</license>
+  <review status="unreviewed" notes=""/>
+  <url>http://ros.org/wiki/keyboard_control</url>
+	<depend package="roscpp" />
+	<depend package="sensor_msgs" />
+	<depend package="irat_msgs" />
+        <depend package="stuck" />
+</package>
+
+
