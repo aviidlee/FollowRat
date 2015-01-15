@@ -209,8 +209,8 @@ int main(int argc, char** argv) {
 	image_transport::Subscriber sub = it.subscribe(topic + "/camera/images", 1, image_callback);
     // subscribe to command velocity 
     ros::Subscriber cmdvel_sub = node.subscribe(topic + "/serial/cmdvel", 1, cmdvel_callback);
-	ros::spin();
 	while(ros::ok()) {
+		ros::spinOnce();
 		waitKey(5);
 	}
 	return 0;
