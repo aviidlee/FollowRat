@@ -1,0 +1,21 @@
+<package>
+  <description brief="motion_detection">
+
+     motion_detection
+
+  </description>
+  <author>alex</author>
+  <license>BSD</license>
+  <review status="unreviewed" notes=""/>
+  <url>http://ros.org/wiki/motion_detection</url>
+  
+  <depend package="sensor_msgs" />
+  <depend package="cv_bridge" />
+  <depend package="roscpp" />
+  <depend package="std_msgs" />
+  <depend package="image_transport" />
+  <depend package="irat_msgs" />
+
+</package>
+
+
