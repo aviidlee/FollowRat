@@ -25,6 +25,7 @@
 #include <fstream>
 // for string manipulation
 #include <sstream>
+#include <string>
 // include the header for logging key strokes
 #include <keyboard_control/log_key_strokes.h>
 // The forward velocity of the irat 
@@ -37,6 +38,7 @@
 
 using std::cout;
 using std::endl;
+using std::string;
 
 void flow_callback(stuck::IRatOpticalFlowConstPtr flow) {
     cout << "Got flow callback" << endl;
