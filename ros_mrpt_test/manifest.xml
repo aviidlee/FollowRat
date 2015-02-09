@@ -1,0 +1,19 @@
+<package>
+  <description brief="ros_mrpt_test">
+
+     ros_mrpt_test
+
+  </description>
+  <author>alex</author>
+  <license>BSD</license>
+  <review status="unreviewed" notes=""/>
+  <url>http://ros.org/wiki/ros_mrpt_test</url>
+
+  <depend package="roscpp" />
+  <depend package="std_msgs" />
+  <depend package="irat_msgs" />
+  <!-- <depend pacakge="mrpt_libs" /> -->
+
+</package>
+
+
