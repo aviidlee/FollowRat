@@ -46,9 +46,13 @@ int main(int argc, char** argv) {
   vector<KeyPoint> keyPoints;
 
 	for(EVER) {
-		Mat frame;
-		cap >> frame; // get new frame from camera
+		Mat frame, origFrame;
+		cap >> origFrame; // get new frame from camera
 
+    // Scale image down for faster processing 
+    resize(origFrame, frame, frame.size(), 0.5, 0.5);
+    // frame = origFrame;
+    
     // Detect blobs 
     blobDet.detect(frame, keyPoints);
 

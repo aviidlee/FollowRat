@@ -17,6 +17,8 @@
 using namespace cv;
 using namespace std;
 
+RNG rng(12345);
+
 int main(int argc, char** argv) {
   int deviceNo;
   cout << "Commencing blob detection from video feed..." << endl;
@@ -46,6 +48,9 @@ int main(int argc, char** argv) {
   // bg.nmixtures = 3;
   // bg.bShadowDetection = false;
 
+  Scalar colour = Scalar(rng.uniform(0, 255), rng.uniform(0, 255),
+      rng.uniform(0, 255));
+
 	for(EVER) {
 		cap >> frame; // get new frame from camera
     
@@ -54,8 +59,22 @@ int main(int argc, char** argv) {
     erode(fore, fore, Mat());
     dilate(fore, fore, Mat());
     findContours(fore, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_NONE);
+  
+    // Get bounding box 
+    vector<vector<Point> > contoursPoly(contours.size());
+    vector<Rect> boundingRects(contours.size());
+    for(int i = 0; i < contours.size(); i++) {
+      approxPolyDP(Mat(contours[i]), contoursPoly[i], 3, true);
+      boundingRects[i] = boundingRect(Mat(contoursPoly[i]));
+    }
+
     drawContours(frame, contours, -1, Scalar(0, 0, 255), 2);
 
+    // Draw the bounding box
+    for(int i = 0; i < contours.size(); i++) {
+      rectangle(frame, boundingRects[i].tl(), boundingRects[i].br(),
+          colour, 2, 8, 0);
+    }
 		imshow("Webcam", frame);
     imshow("Background", back);
 
