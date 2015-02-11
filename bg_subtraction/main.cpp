@@ -14,10 +14,32 @@
 #define EVER ;;
 #define HISTORY 100
 
+// kernel size has to be odd.
+#define MAX_KERNEL_LENGTH 31
+#define MAX_SIGMA_X 10
+#define MAX_SIGMA_Y 10
+
 using namespace cv;
 using namespace std;
 
 RNG rng(12345);
+
+string trackbarWindowName = "Trackbars";
+
+// the std deviations for Gaussian blur
+int blurSigmaX, blurSigmaY;
+// Gaussian blur kernel size
+int kernelSize;
+
+void createTrackbars() {
+  cvNamedWindow("Trackbars");
+  createTrackbar("kernel size", trackbarWindowName, &kernelSize,
+      MAX_KERNEL_LENGTH, NULL); 
+  createTrackbar("Sigma X", trackbarWindowName, &blurSigmaX,
+      MAX_SIGMA_X, NULL); 
+  createTrackbar("Sigma Y", trackbarWindowName, &blurSigmaY,
+      MAX_SIGMA_Y, NULL); 
+}
 
 int main(int argc, char** argv) {
   int deviceNo;
@@ -25,7 +47,8 @@ int main(int argc, char** argv) {
   if(argc == 2) {
     deviceNo = atoi(argv[1]);
   } else {
-    cout << "Usage: overhead <deviceNumber>" << endl;
+    cout << "Usage: bg_subtractor <deviceNumber>" << endl;
+    cout << "NB: Your default device is 0." << endl;
     return -1;
   }
 
@@ -37,10 +60,12 @@ int main(int argc, char** argv) {
   
   cout << "YAY" << endl;
 	cvNamedWindow("Webcam", 1);
+  cvNamedWindow("Foreground");
   cvNamedWindow("Background");
+  createTrackbars();
 
   vector<vector<Point> > contours;
-  Mat frame, back, fore;
+  Mat frame, back, fore, origFrame;
   // According to docs, 9 is default for varThreadhold.
   BackgroundSubtractorMOG2 bg(HISTORY, 9, false);
   // I have no idea what this number does. 
@@ -52,8 +77,15 @@ int main(int argc, char** argv) {
       rng.uniform(0, 255));
 
 	for(EVER) {
-		cap >> frame; // get new frame from camera
+		cap >> origFrame; // get new frame from camera
+    // make the kernel size odd. Else crash.  
+    int kernel = kernelSize % 2 == 0 ? kernelSize + 1 : kernelSize;
+    GaussianBlur(origFrame, frame, Size(kernel, kernel), blurSigmaX, blurSigmaY);
     
+    // Convert to greyscale
+    cvtColor(frame, frame, CV_BGR2GRAY);
+  
+    // Do background subtraction
     bg.operator () (frame, fore);
     bg.getBackgroundImage(back);
     erode(fore, fore, Mat());
@@ -75,8 +107,10 @@ int main(int argc, char** argv) {
       rectangle(frame, boundingRects[i].tl(), boundingRects[i].br(),
           colour, 2, 8, 0);
     }
+
 		imshow("Webcam", frame);
     imshow("Background", back);
+    imshow("Foreground", fore);
 
 		if(waitKey(30) >= 0) {
 			// terminate program on key press 
