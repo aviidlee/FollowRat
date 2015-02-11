@@ -19,7 +19,6 @@ using namespace cv;
 using namespace std;
 
 int main(int argc, char** argv) {
-  cout << "Commencing blob detection from web cam stream..." << endl;
   int deviceNo;
 
   if(argc == 2) {
@@ -29,6 +28,8 @@ int main(int argc, char** argv) {
     cout << "Hint: use 0 as deviceNumber for default device." << endl;
     return -1;
   }
+
+  cout << "Commencing blob detection from web cam stream..." << endl;
 
   VideoCapture cap(deviceNo);
   CBlob currentBlob;
@@ -42,19 +43,33 @@ int main(int argc, char** argv) {
   cvNamedWindow("Blobs");
   
   Mat frame;
-  Mat blobFrame;
 
   while(1) {
     cap >> frame;
+    Mat blobFrame(frame.size(), frame.type());
+
     CBlobResult blobs(frame);
     int numBlobs = blobs.GetNumBlobs();
+    // cout << "numBlobs " << numBlobs << endl;
 
-    for(int i = 0; numBlobs; i++) {
-      currentBlob = blobs.GetBlob(i);
-      currentBlob.FillBlob(blobFrame, CV_RGB(255, 0, 0));
+    for(int i = 0; i < numBlobs; i++) {
+      try {
+        // currentBlob = new CBlob(blobs.GetBlob(i));
+        // Mat, colour, offset x, offset y, bool contours, Mat srcImg
+        currentBlob = blobs.GetBlob(i);
+        currentBlob.FillBlob(blobFrame, Scalar(255, 0, 0));
+      } catch (Exception& e) {
+        cout << "BLOODY EXCEPTIONS!!!" << endl;
+        cout << e.what() << endl;
+        break;
+      } catch (int integerExc) {
+        cout << "CAUGHT INTEGER EXCEPTION" << endl;
+        cout << integerExc << endl;
+        break;
+      }
     }
 
-    imshow("Webcame", frame);
+    imshow("Webcam", frame);
     imshow("Blobs", blobFrame);
 
     if(waitKey(10) >= 0) {
