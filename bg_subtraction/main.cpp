@@ -36,7 +36,21 @@ int blurSigmaX, blurSigmaY;
 // Gaussian blur kernel size
 int kernelSize;
 // the area threshold for excluding very small blobs. 
-int areaThresh = 80;
+int areaThresh = 100;
+
+struct Track {
+  // the id of the blob
+  int id;
+  // bounding rectangle of the blob 
+  Rect boundingRect;
+  // number of frames since object became visible
+  int age;
+  // total number of frames for which the object has been visible
+  int totalVisibleFrames;
+  // total CONSECUTIVE frames for which object has been invisible
+  int consecutiveInvisibleFrames;
+  // Something for the Kalman filter.
+};
 
 void createTrackbars() {
   cvNamedWindow("Trackbars");
@@ -118,8 +132,16 @@ int main(int argc, char** argv) {
     erode(fore, fore, Mat());
     dilate(fore, fore, Mat());
 
+    // Do blob detection 
+    Mat blobFrame(frame.size(), frame.type());
+    CBlobResult blobs(fore);
+    // Filter blobs by size to get rid of little bits 
+    blobs.Filter(blobs, B_EXCLUDE, CBlobGetArea(), B_LESS, areaThresh);
+    int numBlobs = blobs.GetNumBlobs();
+    cout << "numBlobs" << numBlobs << endl;
+    
     /*
-    // findContours(fore, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_NONE);
+    findContours(fore, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_NONE);
   
     // Get bounding box 
     vector<vector<Point> > contoursPoly(contours.size());
@@ -129,7 +151,7 @@ int main(int argc, char** argv) {
       boundingRects[i] = boundingRect(Mat(contoursPoly[i]));
     }
 
-    // drawContours(frame, contours, -1, Scalar(0, 0, 255), 2);
+    drawContours(frame, contours, -1, Scalar(0, 0, 255), 2);
 
     // Draw the bounding box
     for(int i = 0; i < contours.size(); i++) {
@@ -137,20 +159,15 @@ int main(int argc, char** argv) {
           colour, 2, 8, 0);
     }
     */
-
-    // Do blob detection 
-    Mat blobFrame(frame.size(), frame.type());
-    CBlobResult blobs(fore);
-    // Filter blobs by size to get rid of little bits 
-    blobs.Filter(blobs, B_EXCLUDE, CBlobGetArea(), B_LESS, areaThresh);
-
-    int numBlobs = blobs.GetNumBlobs();
     
-    cout << "numBlobs" << numBlobs << endl;
-
+    // Get bounding boxes for blobs
+    vector<Rect> boundingBoxes;
     for(int i = 0; i < numBlobs; i++) {
       currentBlob = blobs.GetBlob(i);
-      currentBlob.FillBlob(blobFrame, Scalar(255, 0, 0));
+      currentBlob.FillBlob(blobFrame, Scalar(0, 255, 0));
+      boundingBoxes.push_back(currentBlob.GetBoundingBox());
+      rectangle(frame, boundingBoxes[i].tl(), boundingBoxes[i].br(),
+          colour, 2, 8, 0);
     }
 
 		imshow("Webcam", frame);
