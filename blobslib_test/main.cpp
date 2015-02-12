@@ -58,13 +58,10 @@ int main(int argc, char** argv) {
         // Mat, colour, offset x, offset y, bool contours, Mat srcImg
         currentBlob = blobs.GetBlob(i);
         currentBlob.FillBlob(blobFrame, Scalar(255, 0, 0));
+        // currentBlob.FillBlob(frame, Scalar(255, 0, 0));
       } catch (Exception& e) {
         cout << "BLOODY EXCEPTIONS!!!" << endl;
         cout << e.what() << endl;
-        break;
-      } catch (int integerExc) {
-        cout << "CAUGHT INTEGER EXCEPTION" << endl;
-        cout << integerExc << endl;
         break;
       }
     }

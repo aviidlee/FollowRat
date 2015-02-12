@@ -9,6 +9,9 @@
 #include <opencv2/features2d/features2d.hpp>
 #include <opencv2/objdetect/objdetect.hpp>
 
+/**************** Blobs *************************/
+#include <BlobResult.h>
+
 /**************** Constants *********************/
 #define RADIUS 2
 #define EVER ;;
@@ -62,6 +65,8 @@ int main(int argc, char** argv) {
 	cvNamedWindow("Webcam", 1);
   cvNamedWindow("Foreground");
   cvNamedWindow("Background");
+  cvNamedWindow("Blobs");
+
   createTrackbars();
 
   vector<vector<Point> > contours;
@@ -75,6 +80,8 @@ int main(int argc, char** argv) {
 
   Scalar colour = Scalar(rng.uniform(0, 255), rng.uniform(0, 255),
       rng.uniform(0, 255));
+  
+  CBlob currentBlob;
 
 	for(EVER) {
 		cap >> origFrame; // get new frame from camera
@@ -90,6 +97,7 @@ int main(int argc, char** argv) {
     bg.getBackgroundImage(back);
     erode(fore, fore, Mat());
     dilate(fore, fore, Mat());
+
     findContours(fore, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_NONE);
   
     // Get bounding box 
@@ -107,10 +115,23 @@ int main(int argc, char** argv) {
       rectangle(frame, boundingRects[i].tl(), boundingRects[i].br(),
           colour, 2, 8, 0);
     }
+    
+    // Do blob detection 
+    Mat blobFrame(frame.size(), frame.type());
+    CBlobResult blobs(fore);
+    int numBlobs = blobs.GetNumBlobs();
+    
+    cout << "numBlobs" << numBlobs << endl;
+
+    for(int i = 0; i < numBlobs; i++) {
+      currentBlob = blobs.GetBlob(i);
+      currentBlob.FillBlob(blobFrame, Scalar(255, 0, 0));
+    }
 
 		imshow("Webcam", frame);
     imshow("Background", back);
     imshow("Foreground", fore);
+    imshow("Blobs", blobFrame);
 
 		if(waitKey(30) >= 0) {
 			// terminate program on key press 
