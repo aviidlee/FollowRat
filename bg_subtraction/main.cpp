@@ -51,29 +51,36 @@ void createTrackbars() {
 }
 
 void printUsageMessage() {
-  cout << "Usage: ./bg_subtractor <deviceNo>" << endl; 
+  cout << "Usage: ./bg_subtractor <deviceNo or file name>" << endl; 
 }
 
 int main(int argc, char** argv) {
   int deviceNo;
-  
+  int check;
+  VideoCapture cap;
+
   if(argc == 2) {
-    deviceNo = atoi(argv[1]);
+    
+    check = sscanf(argv[1], "%d", &deviceNo);
+    if(check) {
+      // One thing (hopefully device number) matched, open video.
+      cap.open(deviceNo); 
+    } else { 
+      // argument was not an integer; assume it was filename.
+      cap.open(argv[1]);
+    }
   } else {
     printUsageMessage();
     cout << "NB: Your default device is 0." << endl;
     return -1;
   }
 
-  cout << "Commencing blob detection from video feed..." << endl;
-
-	VideoCapture cap(deviceNo); // hopefully open the webcam; 0 is default.
 	if(!cap.isOpened()) {
     cout << "Something wrong with video capture..." << endl;
 		return -1;
 	}
   
-  cout << "YAY" << endl;
+  cout << "Commencing blob detection..." << endl;
 	cvNamedWindow("Webcam", 1);
   cvNamedWindow("Foreground");
   // cvNamedWindow("Background");
