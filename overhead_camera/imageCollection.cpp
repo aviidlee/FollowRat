@@ -12,10 +12,10 @@ using namespace std;
 int main(int argc, char** argv) {
   int deviceNo;
   
-  if(argc == 2) {
+  if(argc == 3) {
     deviceNo = atoi(argv[1]);
   } else {
-    cout << "Usage: overhead <deviceNumber>" << endl;
+    cout << "Usage: overhead <deviceNumber> exp_num" << endl;
     return -1;
   }
   
@@ -27,6 +27,9 @@ int main(int argc, char** argv) {
   cout << "YAY" << endl;
 	cvNamedWindow("Webcam", 1);
 	int counter = 1;
+
+	int timer = 0;
+
 	for(EVER) {
 		Mat frame;
 		cap >> frame; // get new frame from camera
@@ -36,14 +39,15 @@ int main(int argc, char** argv) {
 		vector<int> compression_params;
 		compression_params.push_back(CV_IMWRITE_PXM_BINARY);
 		compression_params.push_back(0);
-
-		if (waitKey(30) != -1){
-			cout << "BLAH" << endl;
+		
+		if (timer % 15 == 0) {
+		//if (waitKey(30) != -1){
+			cout << "Saving image: " << counter << endl;
 			stringstream filename;
-			filename << "img/img-" << counter++ << ".pgm";
+			filename << "img/img-" << argv[2] << "-" << counter++ << ".pgm";
 			imwrite(filename.str(), frame, compression_params);
 		}
-
+		timer += 1;
 		//if(waitKey(30) >= 0) {
 			// terminate program on key press 
 		//	break;
