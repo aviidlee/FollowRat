@@ -25,12 +25,14 @@
 #define MAX_AREA_THRESH 500
 #define MAX_WC 200
 #define MAX_WH 200
+#define MIN_OBJ_AREA 100
+#define MAX_OBJ_AREA (640*480/1.5)
 
 // Parameters for colour filtering.
 int bmin = 0;
-int gmin = 50;
+int gmin = 54;
 int rmin = 0;
-int bmax = 100;
+int bmax = 66;
 int gmax = 255;
 int rmax = 50;
 
@@ -39,7 +41,7 @@ int WC = 40; // amount to increase width by
 int WH = 30; // amount to increase height by
 
 // Misc
-bool DEBUG = true;
+int DEBUG = 0;
 
 using namespace cv;
 using namespace std;
@@ -72,6 +74,8 @@ struct Track {
 
 void createTrackbars() {
   cvNamedWindow("Trackbars");
+  createTrackbar("Debug mode", trackbarWindowName, &DEBUG,
+      1, NULL);
   createTrackbar("Increase ROI width", trackbarWindowName, &WC,
       MAX_WC, NULL);
   createTrackbar("Increase ROI height", trackbarWindowName, &WH,
@@ -145,11 +149,6 @@ int main(int argc, char** argv) {
   Mat frame, back, fore, origFrame, filteredFrame;
   // According to docs, 9 is default for varThreadhold.
   BackgroundSubtractorMOG2 bg(HISTORY, 9, false);
-  // I have no idea what this number does. 
-  // mixture components, protected, can't seem to set it via constructor.
-  // bg.nmixtures = 3;
-  // bg.bShadowDetection = false;
-
   Scalar colour = Scalar(rng.uniform(0, 255), rng.uniform(0, 255),
       rng.uniform(0, 255));
   
@@ -168,8 +167,13 @@ int main(int argc, char** argv) {
     /* Do background subtraction */
     bg.operator () (frame, fore);
     bg.getBackgroundImage(back);
-    erode(fore, fore, Mat());
-    dilate(fore, fore, Mat());
+
+    // Morph ops to get rid of noise
+    Mat eroder = getStructuringElement(MORPH_ELLIPSE, Size(3, 3));
+    Mat dilater = getStructuringElement(MORPH_ELLIPSE, Size(6, 6));
+    // Can just supply Mat() instead of eroder/dilator.
+    erode(fore, fore, eroder);
+    dilate(fore, fore, dilater);
 
     /* Do blob detection on the foreground */
     Mat blobFrame(origFrame.size(), origFrame.type());
@@ -177,30 +181,13 @@ int main(int argc, char** argv) {
     // Filter blobs by size to get rid of little bits 
     blobs.Filter(blobs, B_EXCLUDE, CBlobGetArea(), B_LESS, areaThresh);
     int numBlobs = blobs.GetNumBlobs();
-    cout << "numBlobs" << numBlobs << endl;
-    
-    /*
-    findContours(fore, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_NONE);
-  
-    // Get bounding box 
-    vector<vector<Point> > contoursPoly(contours.size());
-    vector<Rect> boundingRects(contours.size());
-    for(int i = 0; i < contours.size(); i++) {
-      approxPolyDP(Mat(contours[i]), contoursPoly[i], 3, true);
-      boundingRects[i] = boundingRect(Mat(contoursPoly[i]));
+    if(DEBUG) {
+      cout << "numBlobs" << numBlobs << endl;
     }
-
-    drawContours(frame, contours, -1, Scalar(0, 0, 255), 2);
-
-    // Draw the bounding box
-    for(int i = 0; i < contours.size(); i++) {
-      rectangle(frame, boundingRects[i].tl(), boundingRects[i].br(),
-          colour, 2, 8, 0);
-    }
-    */
 
     // Coordinates of top left of enlarged rectangle 
     int x, y; 
+    // width and height of enlarged rectangle. bad names.
     int right, bottom;
     int rows = origFrame.rows;
     int cols = origFrame.cols;
@@ -219,20 +206,10 @@ int main(int argc, char** argv) {
       /* Now check the colour of the original image within this ROI
          to see if it's the iRat
       */
-      /*
-      // Cut out the blob region from the original frame. 
-      Mat roi(origFrame, boundingBoxes[i]);
-      // because only headers are newly created, both filtered and roi
-      // actually still point to the frame object.
-      Mat filtered(roi);
-      // inRange might only work well if it's HSV... hmm.
-      inRange(roi, Scalar(bmin, gmin, rmin), Scalar(bmax, gmax, rmax),
-          filtered);
       inRange(origFrame, Scalar(bmin, gmin, rmin), Scalar(bmax, gmax, rmax),
           filteredFrame);
-      // Add 2*WC and 2*WH to width and height of ROI 
-      */
 
+      // Add 2*WC and 2*WH to width and height of ROI 
       // Make the bounding box of blob bigger
       x = currentRect.tl().x-WC > 0 ? currentRect.tl().x-WC : 0;
       y = currentRect.tl().y-WH > 0 ? currentRect.tl().y-WH : 0;
@@ -251,22 +228,38 @@ int main(int argc, char** argv) {
       Rect enlarged(x, y, right, bottom);
       // Make a new mat from the original frame clipping out the 
       // enlarged ROI 
-      try {
-        Mat bigMat(origFrame, enlarged);
-        Mat bigMatRes(bigMat);
-        inRange(bigMat, Scalar(bmin, gmin, rmin), Scalar(bmax, gmax, rmax),
+      Mat bigMat(origFrame, enlarged);
+      Mat bigMatRes(bigMat);
+      inRange(bigMat, Scalar(bmin, gmin, rmin), Scalar(bmax, gmax, rmax),
             bigMatRes);
-      } catch(Exception e) {
-        cout << "Oops?" << endl;
-        cout << e.what() << endl;
-        return -1;
+      
+      /* Erode and dilate the filtered ROI, then calculate its area.
+       * if it is a reasonable size, we say we found the rat.
+       */
+      erode(bigMatRes, bigMatRes, eroder);
+      dilate(bigMatRes, bigMatRes, dilater);
+      vector<vector<Point> > contours;
+      vector<Vec4i> hierachy;
+
+      findContours(bigMatRes, contours, hierachy, CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE);
+      if(hierachy.size() > 0) {
+        int numObj = hierachy.size();
+        for(int j = 0; j >= 0; j = hierachy[j][0]) {
+          Moments moment = moments((Mat) contours[j]);
+          double area = moment.m00;
+          if(area > MIN_OBJ_AREA && area < MAX_OBJ_AREA) {
+            // Draw a circle on the filtered blob. 
+            circle(origFrame, currentBlob.getCenter(), 30, Scalar(0, 0, 255));
+          }
+        }
       }
+
       // Draw enlarged rectangle on original frame.
       rectangle(origFrame, enlarged.tl(), enlarged.br(), colour,
           2, 8, 0);
     }
     
-    // imshow("Filtered frame", filteredFrame);
+    imshow("Filtered frame", filteredFrame);
 		imshow("Processed", frame);
     // imshow("Background", back);
     // imshow("Foreground", fore);
