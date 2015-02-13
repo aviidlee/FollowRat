@@ -21,6 +21,7 @@
 #define MAX_KERNEL_LENGTH 31
 #define MAX_SIGMA_X 10
 #define MAX_SIGMA_Y 10
+#define MAX_AREA_THRESH 300
 
 using namespace cv;
 using namespace std;
@@ -29,10 +30,27 @@ RNG rng(12345);
 
 string trackbarWindowName = "Trackbars";
 
+/*************** Dynamically adjustable params ****/
 // the std deviations for Gaussian blur
 int blurSigmaX, blurSigmaY;
 // Gaussian blur kernel size
 int kernelSize;
+// the area threshold for excluding very small blobs. 
+int areaThresh = 100;
+
+struct Track {
+  // the id of the blob
+  int id;
+  // bounding rectangle of the blob 
+  Rect boundingRect;
+  // number of frames since object became visible
+  int age;
+  // total number of frames for which the object has been visible
+  int totalVisibleFrames;
+  // total CONSECUTIVE frames for which object has been invisible
+  int consecutiveInvisibleFrames;
+  // Something for the Kalman filter.
+};
 
 void createTrackbars() {
   cvNamedWindow("Trackbars");
@@ -42,29 +60,44 @@ void createTrackbars() {
       MAX_SIGMA_X, NULL); 
   createTrackbar("Sigma Y", trackbarWindowName, &blurSigmaY,
       MAX_SIGMA_Y, NULL); 
+  createTrackbar("Minimum blob area", trackbarWindowName, &areaThresh,
+      MAX_AREA_THRESH, NULL);
+}
+
+void printUsageMessage() {
+  cout << "Usage: ./bg_subtractor <deviceNo or file name>" << endl; 
 }
 
 int main(int argc, char** argv) {
   int deviceNo;
-  cout << "Commencing blob detection from video feed..." << endl;
+  int check;
+  VideoCapture cap;
+
   if(argc == 2) {
-    deviceNo = atoi(argv[1]);
+    
+    check = sscanf(argv[1], "%d", &deviceNo);
+    if(check) {
+      // One thing (hopefully device number) matched, open video.
+      cap.open(deviceNo); 
+    } else { 
+      // argument was not an integer; assume it was filename.
+      cap.open(argv[1]);
+    }
   } else {
-    cout << "Usage: bg_subtractor <deviceNumber>" << endl;
+    printUsageMessage();
     cout << "NB: Your default device is 0." << endl;
     return -1;
   }
 
-	VideoCapture cap(deviceNo); // hopefully open the webcam; 0 is default.
 	if(!cap.isOpened()) {
     cout << "Something wrong with video capture..." << endl;
 		return -1;
 	}
   
-  cout << "YAY" << endl;
+  cout << "Commencing blob detection..." << endl;
 	cvNamedWindow("Webcam", 1);
   cvNamedWindow("Foreground");
-  cvNamedWindow("Background");
+  // cvNamedWindow("Background");
   cvNamedWindow("Blobs");
 
   createTrackbars();
@@ -77,6 +110,7 @@ int main(int argc, char** argv) {
   // mixture components, protected, can't seem to set it via constructor.
   // bg.nmixtures = 3;
   // bg.bShadowDetection = false;
+  
 
   Scalar colour = Scalar(rng.uniform(0, 255), rng.uniform(0, 255),
       rng.uniform(0, 255));
@@ -98,6 +132,15 @@ int main(int argc, char** argv) {
     erode(fore, fore, Mat());
     dilate(fore, fore, Mat());
 
+    // Do blob detection 
+    Mat blobFrame(frame.size(), frame.type());
+    CBlobResult blobs(fore);
+    // Filter blobs by size to get rid of little bits 
+    blobs.Filter(blobs, B_EXCLUDE, CBlobGetArea(), B_LESS, areaThresh);
+    int numBlobs = blobs.GetNumBlobs();
+    cout << "numBlobs" << numBlobs << endl;
+    
+    /*
     findContours(fore, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_NONE);
   
     // Get bounding box 
@@ -115,21 +158,20 @@ int main(int argc, char** argv) {
       rectangle(frame, boundingRects[i].tl(), boundingRects[i].br(),
           colour, 2, 8, 0);
     }
+    */
     
-    // Do blob detection 
-    Mat blobFrame(frame.size(), frame.type());
-    CBlobResult blobs(fore);
-    int numBlobs = blobs.GetNumBlobs();
-    
-    cout << "numBlobs" << numBlobs << endl;
-
+    // Get bounding boxes for blobs
+    vector<Rect> boundingBoxes;
     for(int i = 0; i < numBlobs; i++) {
       currentBlob = blobs.GetBlob(i);
-      currentBlob.FillBlob(blobFrame, Scalar(255, 0, 0));
+      currentBlob.FillBlob(blobFrame, Scalar(0, 255, 0));
+      boundingBoxes.push_back(currentBlob.GetBoundingBox());
+      rectangle(frame, boundingBoxes[i].tl(), boundingBoxes[i].br(),
+          colour, 2, 8, 0);
     }
 
 		imshow("Webcam", frame);
-    imshow("Background", back);
+    // imshow("Background", back);
     imshow("Foreground", fore);
     imshow("Blobs", blobFrame);
 
