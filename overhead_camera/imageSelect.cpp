@@ -38,14 +38,18 @@ int BOX_W = 20;
 int BOX_H = 20;
 Mat img; // Img to display
 string WINDOW_NAME = "Window";
-
+char mode;
+int clip_num = 0;
 
 void reset_globals(){
 	fx = -1;
 	fy = -1;
 	sx = -1;
 	sy = -1;
+}
 
+Rect get_rect(int x, int y) {
+	return Rect( x - BOX_W, y - BOX_H, BOX_W * 2, BOX_H * 2);
 }
 
 void callback(int event, int x, int y, int flags, void* userdata) {
@@ -62,13 +66,26 @@ void callback(int event, int x, int y, int flags, void* userdata) {
 			sx = x;
 			sy = y;
 		}
+		
+		if (mode == 'c') {
+			//Save a copy of clicked region
+			Rect rect = get_rect(x, y);
+			Mat dst;
+			stringstream ss;
+			ss << "pos/sample-" << clip_num++ << ".pgm";
+			img(rect).copyTo(dst);
+			imwrite(ss.str(), dst);
+			cout << "Saved: " << ss.str() << endl;
+		}
+
 	} else if ( event == EVENT_MOUSEMOVE ) {
-		cout << "(" << x << ", " << y << ")" << endl;
 		//Draw retangle
 		Scalar colour = Scalar(0, 255, 0);
 		Mat new_img = img.clone();
-		rectangle( new_img, Point(x-BOX_W, y-BOX_H), Point(x+BOX_W, y+BOX_H), 
-				colour, 2, 8, 0);
+		Rect rect = get_rect(x, y);
+		//rectangle( new_img, Point(x-BOX_W, y-BOX_H), Point(x+BOX_W, y+BOX_H), 
+		//		colour, 2, 8, 0);
+		rectangle( new_img, rect.tl(), rect.br(), colour);
 		imshow(WINDOW_NAME, new_img);
 	}
 }
@@ -99,11 +116,13 @@ string get_current_info(string filename){
 
 int main(int argc, char** argv)
 {
-	char mode = 'a'; // Default to annotate mode
-	if (argc > 1) {
+	mode = 'a'; // Default to annotate mode
+	if (argc == 3) {
 		mode = argv[1][0]; // could also be select (s) mode
-		BOX_W = atoi(argv[2]);
-		BOX_H = atoi(argv[2]);
+		BOX_W = atoi(argv[2]) / 2; // Box_x represents half the width
+		BOX_H = atoi(argv[2]) / 2;
+	} else {
+		cout << "Usage: imageSelect <mode (s/a/c)> box_size" << endl;
 	}
 
  	cout << "Start" << endl;
@@ -123,20 +142,22 @@ int main(int argc, char** argv)
 		imshow(WINDOW_NAME, img);
 		do {
 			key = waitKey(0);
-
-			if (key == Q_KEY){
+			
+			if (mode == 'c') {
+				continue;
+			} else if (key == Q_KEY){
 				cout << filename << " was skipped"<< endl;
 				continue;
-			} else if (key == W_KEY && mode == 'a'){
+			} else if (key == W_KEY && mode == 'a'){ //a for annotate
 				output_strs.push_back(get_current_info(filename));
 				cout << get_current_info(filename);
 				reset_globals();
 			} else if (key == W_KEY && mode == 's') { // select mode
 				output_strs.push_back(filename + "\n");
-
 			} else {
 				cout << "Please use only 'q' and 'w' keys" << endl;
 			}
+
 		} while (key != Q_KEY && key != W_KEY);
 
 	}
