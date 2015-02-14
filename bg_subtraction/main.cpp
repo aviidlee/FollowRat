@@ -27,6 +27,7 @@
 #define MAX_WH 200
 #define MIN_OBJ_AREA 100
 #define MAX_OBJ_AREA (640*480/1.5)
+#define FRAMERATE 15
 
 // codes for keyboard presses 
 #define keyP 1048688
@@ -111,15 +112,16 @@ void createTrackbars() {
 }
 
 void printUsageMessage() {
-  cout << "Usage: ./bg_subtractor <deviceNo or file name>" << endl; 
+  cout << "Usage: ./bg_subtractor <deviceNo or file name> [<output filename>]" << endl; 
 }
 
 int main(int argc, char** argv) {
   int deviceNo;
   int check;
   VideoCapture cap;
+  VideoWriter writer;
 
-  if(argc == 2) {
+  if(argc >= 2) {
     
     check = sscanf(argv[1], "%d", &deviceNo);
     if(check) {
@@ -139,6 +141,14 @@ int main(int argc, char** argv) {
     cout << "Something wrong with video capture..." << endl;
 		return -1;
 	}
+
+  // Optional command - write video to file. 
+  if(argc == 3) {
+    int frameWidth = cap.get(CV_CAP_PROP_FRAME_WIDTH);
+    int frameHeight = cap.get(CV_CAP_PROP_FRAME_HEIGHT);
+    writer.open(argv[2], CV_FOURCC('M', 'J', 'P', 'G'), FRAMERATE, 
+        Size(frameWidth, frameHeight));
+  }
   
   cout << "Commencing blob detection..." << endl;
 	cvNamedWindow("Processed", 1);
@@ -280,7 +290,8 @@ int main(int argc, char** argv) {
     // imshow("Foreground", fore);
     // imshow("Blobs", blobFrame);
     imshow("Original frame", origFrame);
-    
+    writer.write(origFrame);
+
     int keyPressed = waitKey(30);
     switch(keyPressed) {
       case keyEsc: // Esc key - quit program
