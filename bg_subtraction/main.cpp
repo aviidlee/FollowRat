@@ -28,6 +28,10 @@
 #define MIN_OBJ_AREA 100
 #define MAX_OBJ_AREA (640*480/1.5)
 
+// codes for keyboard presses 
+#define keyP 1048688
+#define keyEsc 1048603
+
 // Parameters for colour filtering.
 int bmin = 0;
 int gmin = 54;
@@ -57,6 +61,8 @@ int blurSigmaX, blurSigmaY;
 int kernelSize;
 // the area threshold for excluding very small blobs. 
 int areaThresh = 150;
+// pause program 
+bool paused;
 
 struct Track {
   // the id of the blob
@@ -153,9 +159,18 @@ int main(int argc, char** argv) {
       rng.uniform(0, 255));
   
   CBlob currentBlob;
+  bool readFrame;
 
 	for(EVER) {
-		cap >> origFrame; // get new frame from camera
+		readFrame = cap.read(origFrame); // get new frame from camera
+    // check if it's end of the video
+    if(!readFrame) {
+      cout << "End of video file/video stream disrupted." << endl;
+      // Pause until user ends program by pressing a key.
+      if(waitKey(0)) {
+        break;
+      }
+    }
     // make the kernel size odd. Else crash.  
     int kernel = kernelSize % 2 == 0 ? kernelSize + 1 : kernelSize;
 
@@ -265,10 +280,27 @@ int main(int argc, char** argv) {
     // imshow("Foreground", fore);
     // imshow("Blobs", blobFrame);
     imshow("Original frame", origFrame);
-
-		if(waitKey(30) >= 0) {
-			// terminate program on key press 
-			break;
+    
+    int keyPressed = waitKey(30);
+    switch(keyPressed) {
+      case keyEsc: // Esc key - quit program
+        return 0;
+      case keyP: // p - for pause 
+        paused = !paused;
+        if(paused) {
+          cout << "Program paused." << endl;
+          while(paused) {
+            switch(waitKey(0)) {
+              case keyP:
+                paused = false;
+                break;
+            }
+          }
+        }
+      case -1: // no key pressed 
+        break;
+      default:
+        cout << "Key pressed: " << keyPressed << endl;
 		}
 	}
 
