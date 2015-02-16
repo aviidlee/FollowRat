@@ -18,6 +18,9 @@
 #define RADIUS 2
 #define EVER ;;
 #define HISTORY 100
+// Maximum distance possible (squared) 
+#define MAX_DIST 640*640
+#define FONT FONT_HERSHEY_SIMPLEX
 
 // kernel size has to be odd.
 #define MAX_KERNEL_LENGTH 31
@@ -68,10 +71,6 @@ int kernelSize;
 int areaThresh = 150;
 // pause program 
 bool paused;
-// Number of rats expected to be in frame. 
-int numRats;
-// Number of iRats expected to be in frame. 
-int numiRats;
 
 class Track {
   public:
@@ -93,6 +92,47 @@ class Track {
     Track(int objNo) : id(objNo) {}
     
 };
+
+/******************** Other stuff...********************/
+// Number of rats expected to be in frame. 
+int numRats;
+// Number of iRats expected to be in frame. 
+int numiRats;
+// The current tracks for the iRats
+vector<Track> nowTrack;
+// Tracks from last frame for the iRats  
+vector<Track> prevTracks;
+// Previous frame's tracks for rats 
+vector<Track> prevRatTracks;
+// Current tracks for rats 
+vector<Track> nowRatTrack;
+
+vector<Point> mouseClickRats;
+
+/**
+ * Click to specify where the rats are. Left mouse button specifies where 
+ * rat 1 is, and right mouse button specifies where rat 2 is. 
+ */
+void mouseCallback(int event, int x, int y, int flags, void* userdata) {
+  // Click to specify position of rat 1
+  if(event == EVENT_LBUTTONDOWN && numRats > 0) {
+    if(DEBUG) {
+      cout << "Left mouse button clicked at (x, y) = " 
+                   << x << "," << y << endl;
+    }
+    mouseClickRats[0] = Point(x, y);
+  }
+  
+  // Click to specify position of rat 2
+  if(event == EVENT_RBUTTONDOWN && numRats > 1) {
+    if(DEBUG) {
+      cout << "Right mouse button clicked at (x, y) = " 
+                    << x << "," << y << endl;
+    }
+    mouseClickRats[1] = Point(x, y);
+  }
+
+}
 
 void createTrackbars() {
   cvNamedWindow("Trackbars");
@@ -127,7 +167,49 @@ void createTrackbars() {
 }
 
 void printUsageMessage() {
-  cout << "Usage: ./bg_subtractor <deviceNo or file name> <num expected iRats> <num expected rats> [<output filename>]" << endl; 
+  cout << "Usage: ./bg_subtractor <deviceNo or file name> <num expected iRats>" 
+       << "<num expected rats> [<output filename>]" << endl; 
+}
+
+void updatePositions(CBlobResult blobs) {
+  int numBlobs = blobs.GetNumBlobs();
+  
+  cout << "Number of iRats: " << numiRats << endl;
+  cout << "Number of rats: " << numRats << endl;
+
+  for(int i = 0; i < numiRats; i++) {
+    Point candidate;
+    double minDist = MAX_DIST;
+    double dist;
+    for(int j = 0; j < numBlobs; j++) {
+      Point blobCentre = blobs.GetBlob(j)->getCenter();
+      Point diff = prevTracks[i].centroid - blobCentre;
+      dist = diff.ddot(diff);
+      if(dist < minDist) { 
+        candidate = blobCentre;
+        minDist = dist;
+      }
+    }
+    nowTrack[i].centroid = candidate;
+  }
+
+  for(int i = 0; i < numRats; i++) {
+    Point candidate;
+    double minDist = MAX_DIST;
+    double dist;
+    for(int j = 0; j < numBlobs; j++) {
+      Point blobCentre = blobs.GetBlob(j)->getCenter();
+      Point diff = prevRatTracks[i].centroid - blobCentre;
+      dist = diff.ddot(diff);
+      if(dist < minDist) { 
+        candidate = blobCentre;
+        minDist = dist;
+      }
+    }
+    nowRatTrack[i].centroid = candidate;
+  }
+  
+  return;
 }
 
 int main(int argc, char** argv) {
@@ -136,10 +218,6 @@ int main(int argc, char** argv) {
   VideoCapture cap;
   VideoWriter writer;
   vector<vector<Track> > trackHistory;
-  // The current tracks
-  vector<Track> nowTrack;
-  // Tracks from last frame 
-  vector<Track> prevTracks;
   int k;
   
   if(argc >= 4) {
@@ -169,7 +247,8 @@ int main(int argc, char** argv) {
       nowTrack.push_back(Track(k));
     }
     for(int j = k; j < k + numRats; j++) {
-      nowTrack.push_back(Track(j));
+      nowRatTrack.push_back(Track(j));
+      mouseClickRats.push_back(Point(0, 0));
     }
 
     cout << "Number of tracks: " << nowTrack.size() << endl;
@@ -203,6 +282,8 @@ int main(int argc, char** argv) {
   cvNamedWindow("Filtered frame");
 
   createTrackbars();
+  
+  setMouseCallback("Original frame", mouseCallback, NULL);
 
   vector<vector<Point> > contours;
   Mat frame, back, fore, origFrame, filteredFrame;
@@ -364,6 +445,28 @@ int main(int argc, char** argv) {
           2, 8, 0);
     }
     
+    if(!prevTracks.empty() && !prevRatTracks.empty()) {
+      updatePositions(blobs);
+    }
+
+    // Override positions with mouseclick events. 
+    
+
+    // We have been through all the blobs. Finalise loc of iRat
+    Scalar green = Scalar(0, 255, 0);
+    Scalar blue = Scalar(255, 0, 0);
+    for(int i = 0; i < numiRats; i++) {
+      putText(origFrame, "iRat", nowTrack[i].centroid, FONT_HERSHEY_SIMPLEX, 0.5, green, 2);
+    }
+    
+    /*
+    for(int i = 0; i < numRats; i++) {
+      stringstream ss;
+      ss << "Rat " << i;
+      putText(origFrame, ss.str(), nowRatTrack[i].centroid, FONT, 0.5, blue, 2);
+    }
+    */
+
     imshow("Filtered frame", filteredFrame);
 		imshow("Processed", frame);
     // imshow("Background", back);
@@ -374,6 +477,7 @@ int main(int argc, char** argv) {
     
     // Update track 
     prevTracks = nowTrack;
+    prevRatTracks = nowRatTrack;
     colouredCount = 0;
 
     int keyPressed = waitKey(30);
