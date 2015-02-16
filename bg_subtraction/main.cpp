@@ -141,7 +141,7 @@ int main(int argc, char** argv) {
   // Tracks from last frame 
   vector<Track> prevTracks;
   int k;
-
+  
   if(argc >= 4) {
     
     check = sscanf(argv[1], "%d", &deviceNo);
@@ -162,6 +162,8 @@ int main(int argc, char** argv) {
       return -1;
     }
     
+    cout << "Initialising tracks..." << endl;
+
     // Initialise the tracks
     for(k = 0; k < numiRats; k++) {
       nowTrack.push_back(Track(k));
@@ -169,6 +171,8 @@ int main(int argc, char** argv) {
     for(int j = k; j < k + numRats; j++) {
       nowTrack.push_back(Track(j));
     }
+
+    cout << "Number of tracks: " << nowTrack.size() << endl;
 
   } else {
     printUsageMessage();
@@ -257,7 +261,6 @@ int main(int argc, char** argv) {
     int rows = origFrame.rows;
     int cols = origFrame.cols;
     
-    
     // Number of coloured objects seen so far. 
     int colouredCount = 0;
     // list of locations of coloured objects 
@@ -314,6 +317,7 @@ int main(int argc, char** argv) {
       vector<vector<Point> > contours;
       vector<Vec4i> hierachy;
       
+      cout << "Finding contours for filtered blobs..." << endl;
       findContours(bigMatRes, contours, hierachy, CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE);
       if(hierachy.size() > 0) {
         int numObj = hierachy.size();
@@ -321,13 +325,15 @@ int main(int argc, char** argv) {
           Moments moment = moments((Mat) contours[j]);
           double area = moment.m00;
           if(area > MIN_OBJ_AREA && area < MAX_OBJ_AREA) {
-            colouredCount++;
             Point centre = currentBlob.getCenter();
             // Draw a circle on the filtered blob. 
             circle(origFrame, centre, 30, Scalar(0, 0, 255));
+            cout << "Coloured count is " << colouredCount << endl;
             if(colouredCount && !prevTracks.empty()) { 
+              cout << "Already seen something coloured... calculating distances" << endl;
               // We've already seen a coloured object... which one is the iRat?
               // See how far the current blob is from the previous iRat's location.
+              cout << "Size of coloured " << coloured.size() << endl;
               Point diff = coloured[colouredCount-1] - prevTracks[0].centroid;
               double distSq = diff.ddot(diff); 
               if(distSq < minDist) {
@@ -338,12 +344,16 @@ int main(int argc, char** argv) {
 
             } else { // haven't seen anything coloured yet
               // This is our guess for where iRat is
+              cout << "Seeing something coloured for first time. It's the iRat." << endl;
+              colouredCount++;
               nowTrack[0].centroid = centre; 
               nowTrack[0].boundingRect = enlarged;
               coloured.push_back(centre);
               // Calculate (squared) distance from previous known location of iRat
-              Point diff = centre - prevTracks[0].centroid;
-              minDist = diff.ddot(diff); 
+              if(!prevTracks.empty()) {
+                Point diff = centre - prevTracks[0].centroid;
+                minDist = diff.ddot(diff);
+              }
             }
           }
         }
@@ -364,6 +374,7 @@ int main(int argc, char** argv) {
     
     // Update track 
     prevTracks = nowTrack;
+    colouredCount = 0;
 
     int keyPressed = waitKey(30);
     switch(keyPressed) {
