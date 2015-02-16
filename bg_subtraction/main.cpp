@@ -2,6 +2,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <math.h>
 
 /**************** OpenCV Stuff *******************/
 #include <opencv2/opencv.hpp>
@@ -32,6 +33,9 @@
 // codes for keyboard presses 
 #define keyP 1048688
 #define keyEsc 1048603
+
+// number of previous locations of blobs to keep track of.
+#define MAX_AGE
 
 // Parameters for colour filtering.
 int bmin = 0;
@@ -64,19 +68,30 @@ int kernelSize;
 int areaThresh = 150;
 // pause program 
 bool paused;
+// Number of rats expected to be in frame. 
+int numRats;
+// Number of iRats expected to be in frame. 
+int numiRats;
 
-struct Track {
-  // the id of the blob
-  int id;
-  // bounding rectangle of the blob 
-  Rect boundingRect;
-  // number of frames since object became visible
-  int age;
-  // total number of frames for which the object has been visible
-  int totalVisibleFrames;
-  // total CONSECUTIVE frames for which object has been invisible
-  int consecutiveInvisibleFrames;
-  // Something for the Kalman filter.
+class Track {
+  public:
+    // the id of the blob
+    int id;
+    // The type of object we think it is. 
+    string type;
+    // bounding rectangle of the blob 
+    Rect boundingRect;
+    // centroid 
+    Point centroid;
+    // number of frames since object became visible
+    int age;
+    // total number of frames for which the object has been visible
+    int totalVisibleFrames;
+    // total CONSECUTIVE frames for which object has been invisible
+    int consecutiveInvisibleFrames;
+
+    Track(int objNo) : id(objNo) {}
+    
 };
 
 void createTrackbars() {
@@ -112,7 +127,7 @@ void createTrackbars() {
 }
 
 void printUsageMessage() {
-  cout << "Usage: ./bg_subtractor <deviceNo or file name> [<output filename>]" << endl; 
+  cout << "Usage: ./bg_subtractor <deviceNo or file name> <num expected iRats> <num expected rats> [<output filename>]" << endl; 
 }
 
 int main(int argc, char** argv) {
@@ -120,8 +135,14 @@ int main(int argc, char** argv) {
   int check;
   VideoCapture cap;
   VideoWriter writer;
+  vector<vector<Track> > trackHistory;
+  // The current tracks
+  vector<Track> nowTrack;
+  // Tracks from last frame 
+  vector<Track> prevTracks;
+  int k;
 
-  if(argc >= 2) {
+  if(argc >= 4) {
     
     check = sscanf(argv[1], "%d", &deviceNo);
     if(check) {
@@ -131,6 +152,24 @@ int main(int argc, char** argv) {
       // argument was not an integer; assume it was filename.
       cap.open(argv[1]);
     }
+
+    if(!sscanf(argv[2], "%d", &numiRats)) {
+      cout << "Something wrong with provided number of expected iRats" << endl;
+      return -1;
+    }
+    if(!sscanf(argv[3], "%d", &numRats)) {
+      cout << "Something wrong with provided number of expected rats" << endl;
+      return -1;
+    }
+    
+    // Initialise the tracks
+    for(k = 0; k < numiRats; k++) {
+      nowTrack.push_back(Track(k));
+    }
+    for(int j = k; j < k + numRats; j++) {
+      nowTrack.push_back(Track(j));
+    }
+
   } else {
     printUsageMessage();
     cout << "NB: Your default device is 0." << endl;
@@ -143,10 +182,10 @@ int main(int argc, char** argv) {
 	}
 
   // Optional command - write video to file. 
-  if(argc == 3) {
+  if(argc == 5) {
     int frameWidth = cap.get(CV_CAP_PROP_FRAME_WIDTH);
     int frameHeight = cap.get(CV_CAP_PROP_FRAME_HEIGHT);
-    writer.open(argv[2], CV_FOURCC('M', 'J', 'P', 'G'), FRAMERATE, 
+    writer.open(argv[4], CV_FOURCC('M', 'J', 'P', 'G'), FRAMERATE, 
         Size(frameWidth, frameHeight));
   }
   
@@ -181,6 +220,7 @@ int main(int argc, char** argv) {
         break;
       }
     }
+
     // make the kernel size odd. Else crash.  
     int kernel = kernelSize % 2 == 0 ? kernelSize + 1 : kernelSize;
 
@@ -216,6 +256,14 @@ int main(int argc, char** argv) {
     int right, bottom;
     int rows = origFrame.rows;
     int cols = origFrame.cols;
+    
+    
+    // Number of coloured objects seen so far. 
+    int colouredCount = 0;
+    // list of locations of coloured objects 
+    vector<Point> coloured;
+    // The minimum squared distance between a coloured blob and previous iRat location.
+    double minDist = 640*640;
 
     // Get bounding boxes for blobs
     // Don't need them stored to draw them, but we will need them later.
@@ -265,7 +313,7 @@ int main(int argc, char** argv) {
       dilate(bigMatRes, bigMatRes, dilater);
       vector<vector<Point> > contours;
       vector<Vec4i> hierachy;
-
+      
       findContours(bigMatRes, contours, hierachy, CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE);
       if(hierachy.size() > 0) {
         int numObj = hierachy.size();
@@ -273,8 +321,30 @@ int main(int argc, char** argv) {
           Moments moment = moments((Mat) contours[j]);
           double area = moment.m00;
           if(area > MIN_OBJ_AREA && area < MAX_OBJ_AREA) {
+            colouredCount++;
+            Point centre = currentBlob.getCenter();
             // Draw a circle on the filtered blob. 
-            circle(origFrame, currentBlob.getCenter(), 30, Scalar(0, 0, 255));
+            circle(origFrame, centre, 30, Scalar(0, 0, 255));
+            if(colouredCount && !prevTracks.empty()) { 
+              // We've already seen a coloured object... which one is the iRat?
+              // See how far the current blob is from the previous iRat's location.
+              Point diff = coloured[colouredCount-1] - prevTracks[0].centroid;
+              double distSq = diff.ddot(diff); 
+              if(distSq < minDist) {
+                minDist = distSq;
+                // This one is closer to previous location, update current location of iRat.
+                nowTrack[0].centroid = centre;
+              }
+
+            } else { // haven't seen anything coloured yet
+              // This is our guess for where iRat is
+              nowTrack[0].centroid = centre; 
+              nowTrack[0].boundingRect = enlarged;
+              coloured.push_back(centre);
+              // Calculate (squared) distance from previous known location of iRat
+              Point diff = centre - prevTracks[0].centroid;
+              minDist = diff.ddot(diff); 
+            }
           }
         }
       }
@@ -291,6 +361,9 @@ int main(int argc, char** argv) {
     // imshow("Blobs", blobFrame);
     imshow("Original frame", origFrame);
     writer.write(origFrame);
+    
+    // Update track 
+    prevTracks = nowTrack;
 
     int keyPressed = waitKey(30);
     switch(keyPressed) {
