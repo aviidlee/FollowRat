@@ -204,24 +204,6 @@ void printUsageMessage() {
  */
 void updatePositions(CBlobResult blobs) {
   int numBlobs = blobs.GetNumBlobs();
-  
-  /*
-  for(int i = 0; i < numiRats; i++) {
-    Point candidate;
-    double minDist = MAX_DIST;
-    double dist;
-    for(int j = 0; j < numBlobs; j++) {
-      Point blobCentre = blobs.GetBlob(j)->getCenter();
-      Point diff = prevTracks[i].centroid - blobCentre;
-      dist = diff.ddot(diff);
-      if(dist < minDist) { 
-        candidate = blobCentre;
-        minDist = dist;
-      }
-    }
-    nowTrack[i].centroid = candidate;
-  }
-  */
 
   for(int i = 0; i < numRats; i++) {
     Point candidate;
@@ -257,9 +239,9 @@ void morphOps(Mat& src, Mat& dest, const Mat& eroder=getStructuringElement(MORPH
   return;
 }
 
-
 /**
  * Preprocess the image by doing Gaussian blur and turning it into greyscale. 
+ * Parameters come from trackbar sliders. I.e., dynamically adjustable at runtime.
  */
 void preprocess(Mat& src, Mat& dest) {
   // make the kernel size odd. Else crash.  
@@ -270,6 +252,39 @@ void preprocess(Mat& src, Mat& dest) {
   return;
 }
 
+
+/**
+ * Enlarge the given rectangle by increasing its width and height by a 
+ * given amount in a manner such that it still fits the given frame,
+ * and return a Mat corresponding to that enlarged rectangle. 
+ *
+ *
+ * @param rect the original rectangle
+ * @param origFrame the frame from which to clip out the enlarged ROI.
+ * 
+ * @return the region clipped out from origFrame 
+ */
+Rect enlargeRect(Mat& origFrame, Rect& rect) {
+    int rows = origFrame.rows;
+    int cols = origFrame.cols;
+    // Coordinates of top left of enlarged rectangle 
+    int x, y; 
+    // width and height of enlarged rectangle. 
+    int width, height;
+    // Add 2*WC and 2*WH to width and height of ROI 
+    // Make the bounding box of blob bigger
+    x = rect.tl().x-WC > 0 ? rect.tl().x-WC : 0;
+    y = rect.tl().y-WH > 0 ? rect.tl().y-WH : 0;
+    int origWidth = rect.width;
+    int origHeight = rect.height;
+    width = origWidth+WC < cols ? origWidth+WC : cols - rect.br().x + origWidth;
+    height = origHeight+WH < rows ? origHeight+WH : rows - rect.br().y + origHeight;
+
+    Rect enlarged(x, y, width, height);
+    return enlarged;
+}
+
+
 int main(int argc, char** argv) {
   // the video device number 
   int deviceNo;
@@ -279,6 +294,12 @@ int main(int argc, char** argv) {
   VideoWriter writer;
   // indexing variable used for initialising Tracks; do not remove.
   int k;
+  // colours...
+  Scalar green = Scalar(0, 255, 0);
+  Scalar blue = Scalar(255, 0, 0);
+  Scalar black = Scalar(0, 0, 0);
+  Scalar colour = Scalar(rng.uniform(0, 255), rng.uniform(0, 255),
+      rng.uniform(0, 255));
   
   if(argc >= 4) {
 
@@ -334,10 +355,6 @@ int main(int argc, char** argv) {
   
   cout << "Commencing blob detection..." << endl;
 	cvNamedWindow("Processed", 1);
-  // cvNamedWindow("Foreground");
-  // cvNamedWindow("Filtered");
-  // cvNamedWindow("Background");
-  // cvNamedWindow("Blobs");
   cvNamedWindow("Original frame");
   cvNamedWindow("Filtered frame");
 
@@ -348,8 +365,7 @@ int main(int argc, char** argv) {
   Mat frame, back, fore, origFrame, filteredFrame;
   // According to docs, 9 is default for varThreadhold.
   BackgroundSubtractorMOG2 bg(HISTORY, 9, false);
-  Scalar colour = Scalar(rng.uniform(0, 255), rng.uniform(0, 255),
-      rng.uniform(0, 255));
+  
   
   CBlob currentBlob;
   bool readFrame;
@@ -380,14 +396,7 @@ int main(int argc, char** argv) {
     // Filter blobs by size to get rid of little bits 
     blobs.Filter(blobs, B_EXCLUDE, CBlobGetArea(), B_LESS, areaThresh);
     int numBlobs = blobs.GetNumBlobs();
-
-    // Coordinates of top left of enlarged rectangle 
-    int x, y; 
-    // width and height of enlarged rectangle. bad names.
-    int right, bottom;
-    int rows = origFrame.rows;
-    int cols = origFrame.cols;
-    
+   
     // Number of coloured objects seen so far. 
     int colouredCount = 0;
     // list of locations of coloured objects 
@@ -403,38 +412,23 @@ int main(int argc, char** argv) {
       currentBlob.FillBlob(frame, Scalar(0, 255, 0));
       Rect currentRect = currentBlob.GetBoundingBox();
       boundingBoxes.push_back(currentBlob.GetBoundingBox());
+      // Draw the unmodified bounding box onto the processed images frame.
       rectangle(frame, boundingBoxes[i].tl(), boundingBoxes[i].br(),
           colour, 2, 8, 0);
 
-      /* Now check the colour of the original image within this ROI
-         to see if it's the iRat
+      /* 
+      * Colour filter the entire original frame so that we know what 
+      * the colour filtering is doing.
       */
       inRange(origFrame, Scalar(bmin, gmin, rmin), Scalar(bmax, gmax, rmax),
           filteredFrame);
 
-      // Add 2*WC and 2*WH to width and height of ROI 
-      // Make the bounding box of blob bigger
-      x = currentRect.tl().x-WC > 0 ? currentRect.tl().x-WC : 0;
-      y = currentRect.tl().y-WH > 0 ? currentRect.tl().y-WH : 0;
-      int width = currentRect.width;
-      int height = currentRect.height;
-      right = currentRect.width+WC < cols ? currentRect.width+WC : cols-currentRect.br().x + width;
-      bottom = height+WH < rows ? height+WH : rows - currentRect.br().y + height;
-      
-      /*
-      if(DEBUG) {
-        cout << "x: " << x << endl;
-        cout << "y: " << y << endl;
-        cout << "right: " << right << endl;
-        cout << "bottom: " << bottom << endl;
-      }
-      */
-      
-      Rect enlarged(x, y, right, bottom);
       // Make a new mat from the original frame clipping out the 
       // enlarged ROI 
+      Rect enlarged = enlargeRect(origFrame, currentRect);
       Mat bigMat(origFrame, enlarged);
       Mat bigMatRes(bigMat);
+      
       inRange(bigMat, Scalar(bmin, gmin, rmin), Scalar(bmax, gmax, rmax),
             bigMatRes);
       
@@ -504,9 +498,7 @@ int main(int argc, char** argv) {
     }
 
     // We have been through all the blobs. Finalise loc of iRat
-    Scalar green = Scalar(0, 255, 0);
-    Scalar blue = Scalar(255, 0, 0);
-    Scalar black = Scalar(0, 0, 0);
+    
     for(int i = 0; i < numiRats; i++) {
       putText(origFrame, "iRat", nowTrack[i].centroid, FONT_HERSHEY_SIMPLEX, 0.5, green, 2);
     }
