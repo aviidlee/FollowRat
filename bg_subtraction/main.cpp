@@ -53,7 +53,7 @@ int WC = 40; // amount to increase width by
 int WH = 30; // amount to increase height by
 
 // Misc
-int DEBUG = 0;
+int DEBUG = 1;
 
 using namespace cv;
 using namespace std;
@@ -68,7 +68,7 @@ int blurSigmaX, blurSigmaY;
 // Gaussian blur kernel size
 int kernelSize;
 // the area threshold for excluding very small blobs. 
-int areaThresh = 150;
+int areaThresh = 180;
 // pause program 
 bool paused;
 
@@ -109,11 +109,14 @@ vector<Track> nowRatTrack;
 
 vector<Point> mouseClickRats;
 
+bool mouseClicked;
+
 /**
  * Click to specify where the rats are. Left mouse button specifies where 
  * rat 1 is, and right mouse button specifies where rat 2 is. 
  */
 void mouseCallback(int event, int x, int y, int flags, void* userdata) {
+  mouseClicked = true;
   // Click to specify position of rat 1
   if(event == EVENT_LBUTTONDOWN && numRats > 0) {
     if(DEBUG) {
@@ -121,6 +124,8 @@ void mouseCallback(int event, int x, int y, int flags, void* userdata) {
                    << x << "," << y << endl;
     }
     mouseClickRats[0] = Point(x, y);
+    nowRatTrack[0].centroid = Point(x, y);
+    
   }
   
   // Click to specify position of rat 2
@@ -130,6 +135,7 @@ void mouseCallback(int event, int x, int y, int flags, void* userdata) {
                     << x << "," << y << endl;
     }
     mouseClickRats[1] = Point(x, y);
+    nowRatTrack[1].centroid = Point(x, y);
   }
 
 }
@@ -171,12 +177,14 @@ void printUsageMessage() {
        << "<num expected rats> [<output filename>]" << endl; 
 }
 
+/**
+ * Dumb dumb update. Use previous known position of objects 
+ * to guess which of the current blobs they are.
+ */
 void updatePositions(CBlobResult blobs) {
   int numBlobs = blobs.GetNumBlobs();
   
-  cout << "Number of iRats: " << numiRats << endl;
-  cout << "Number of rats: " << numRats << endl;
-
+  /*
   for(int i = 0; i < numiRats; i++) {
     Point candidate;
     double minDist = MAX_DIST;
@@ -192,6 +200,7 @@ void updatePositions(CBlobResult blobs) {
     }
     nowTrack[i].centroid = candidate;
   }
+  */
 
   for(int i = 0; i < numRats; i++) {
     Point candidate;
@@ -251,7 +260,8 @@ int main(int argc, char** argv) {
       mouseClickRats.push_back(Point(0, 0));
     }
 
-    cout << "Number of tracks: " << nowTrack.size() << endl;
+    cout << "Number of iRats: " << nowTrack.size() << endl;
+    cout << "Number of rats: " << nowRatTrack.size() << endl;
 
   } else {
     printUsageMessage();
@@ -331,9 +341,11 @@ int main(int argc, char** argv) {
     // Filter blobs by size to get rid of little bits 
     blobs.Filter(blobs, B_EXCLUDE, CBlobGetArea(), B_LESS, areaThresh);
     int numBlobs = blobs.GetNumBlobs();
+    /*
     if(DEBUG) {
       cout << "numBlobs" << numBlobs << endl;
     }
+    */
 
     // Coordinates of top left of enlarged rectangle 
     int x, y; 
@@ -375,12 +387,14 @@ int main(int argc, char** argv) {
       right = currentRect.width+WC < cols ? currentRect.width+WC : cols-currentRect.br().x + width;
       bottom = height+WH < rows ? height+WH : rows - currentRect.br().y + height;
       
+      /*
       if(DEBUG) {
         cout << "x: " << x << endl;
         cout << "y: " << y << endl;
         cout << "right: " << right << endl;
         cout << "bottom: " << bottom << endl;
       }
+      */
       
       Rect enlarged(x, y, right, bottom);
       // Make a new mat from the original frame clipping out the 
@@ -398,7 +412,7 @@ int main(int argc, char** argv) {
       vector<vector<Point> > contours;
       vector<Vec4i> hierachy;
       
-      cout << "Finding contours for filtered blobs..." << endl;
+      // cout << "Finding contours for filtered blobs..." << endl;
       findContours(bigMatRes, contours, hierachy, CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE);
       if(hierachy.size() > 0) {
         int numObj = hierachy.size();
@@ -409,12 +423,12 @@ int main(int argc, char** argv) {
             Point centre = currentBlob.getCenter();
             // Draw a circle on the filtered blob. 
             circle(origFrame, centre, 30, Scalar(0, 0, 255));
-            cout << "Coloured count is " << colouredCount << endl;
+            // cout << "Coloured count is " << colouredCount << endl;
             if(colouredCount && !prevTracks.empty()) { 
-              cout << "Already seen something coloured... calculating distances" << endl;
+              // cout << "Already seen something coloured... calculating distances" << endl;
               // We've already seen a coloured object... which one is the iRat?
               // See how far the current blob is from the previous iRat's location.
-              cout << "Size of coloured " << coloured.size() << endl;
+              // cout << "Size of coloured " << coloured.size() << endl;
               Point diff = coloured[colouredCount-1] - prevTracks[0].centroid;
               double distSq = diff.ddot(diff); 
               if(distSq < minDist) {
@@ -425,7 +439,7 @@ int main(int argc, char** argv) {
 
             } else { // haven't seen anything coloured yet
               // This is our guess for where iRat is
-              cout << "Seeing something coloured for first time. It's the iRat." << endl;
+              // cout << "Seeing something coloured for first time. It's the iRat." << endl;
               colouredCount++;
               nowTrack[0].centroid = centre; 
               nowTrack[0].boundingRect = enlarged;
@@ -448,24 +462,28 @@ int main(int argc, char** argv) {
     if(!prevTracks.empty() && !prevRatTracks.empty()) {
       updatePositions(blobs);
     }
-
-    // Override positions with mouseclick events. 
     
+    // Override deduced position with manual input if there is any.
+    if(mouseClicked) {
+      for(int i = 0; i < numRats; i++) {
+        nowRatTrack[i].centroid = mouseClickRats[i];
+      }
+    }
 
     // We have been through all the blobs. Finalise loc of iRat
     Scalar green = Scalar(0, 255, 0);
     Scalar blue = Scalar(255, 0, 0);
+    Scalar black = Scalar(0, 0, 0);
     for(int i = 0; i < numiRats; i++) {
       putText(origFrame, "iRat", nowTrack[i].centroid, FONT_HERSHEY_SIMPLEX, 0.5, green, 2);
     }
     
-    /*
     for(int i = 0; i < numRats; i++) {
       stringstream ss;
       ss << "Rat " << i;
       putText(origFrame, ss.str(), nowRatTrack[i].centroid, FONT, 0.5, blue, 2);
+      // putText(origFrame, "clicked here", mouseClickRats[i], FONT, 0.5, black, 2);
     }
-    */
 
     imshow("Filtered frame", filteredFrame);
 		imshow("Processed", frame);
@@ -479,6 +497,7 @@ int main(int argc, char** argv) {
     prevTracks = nowTrack;
     prevRatTracks = nowRatTrack;
     colouredCount = 0;
+    mouseClicked = false;
 
     int keyPressed = waitKey(30);
     switch(keyPressed) {
