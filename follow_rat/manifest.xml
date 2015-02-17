@@ -1,0 +1,18 @@
+<package>
+  <description brief="follow_rat">
+
+     follow_rat
+
+  </description>
+  <author>alex</author>
+  <license>BSD</license>
+  <review status="unreviewed" notes=""/>
+  <url>http://ros.org/wiki/follow_rat</url>
+  <depend package="roscpp"/>
+  <depend package="sensor_msgs"/>
+  <depend package="std_msgs"/>
+  <depend package="irat_msgs"/>
+
+</package>
+
+
