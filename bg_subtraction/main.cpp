@@ -14,23 +14,33 @@
 #include <BlobResult.h>
 
 /**************** Constants *********************/
-
-#define RADIUS 2
+// Syntactic sugar
 #define EVER ;;
+// Parameter for background subtraction
 #define HISTORY 100
-// Maximum distance possible (squared) 
+// Maximum distance possible (squared) in a standard webcam frame.
 #define MAX_DIST 640*640
+// Shorthand for font used for displaying text labels on frames
 #define FONT FONT_HERSHEY_SIMPLEX
 
+/****** Parameters for pre-processing images ****/
 // kernel size has to be odd.
 #define MAX_KERNEL_LENGTH 31
 #define MAX_SIGMA_X 10
 #define MAX_SIGMA_Y 10
+// trackbar slider maximum for area filtering blobs. 
 #define MAX_AREA_THRESH 500
+// maximum amount by which to pad width of bounding rectangles
 #define MAX_WC 200
+// maximum amount by which to pad height of bounding rectangles
 #define MAX_WH 200
+// minimum area required for coloure-filtered object to be treated 
+// as an object and not as noise.
 #define MIN_OBJ_AREA 100
+/// minimum area allowed for coloure-filtered object to be treated 
+// as an object and not as noise.
 #define MAX_OBJ_AREA (640*480/1.5)
+// video feed framerate in Hz
 #define FRAMERATE 15
 
 // codes for keyboard presses 
@@ -72,6 +82,9 @@ int areaThresh = 180;
 // pause program 
 bool paused;
 
+/**
+ * Represents an object identified in the frame. 
+ */
 class Track {
   public:
     // the id of the blob
@@ -106,9 +119,9 @@ vector<Track> prevTracks;
 vector<Track> prevRatTracks;
 // Current tracks for rats 
 vector<Track> nowRatTrack;
-
+// Stores the mouse click positions; required for updating the rats' positions.
 vector<Point> mouseClickRats;
-
+// Whether or not the mouse has been clicked during this frame.
 bool mouseClicked;
 
 /**
@@ -124,8 +137,6 @@ void mouseCallback(int event, int x, int y, int flags, void* userdata) {
                    << x << "," << y << endl;
     }
     mouseClickRats[0] = Point(x, y);
-    nowRatTrack[0].centroid = Point(x, y);
-    
   }
   
   // Click to specify position of rat 2
@@ -135,11 +146,15 @@ void mouseCallback(int event, int x, int y, int flags, void* userdata) {
                     << x << "," << y << endl;
     }
     mouseClickRats[1] = Point(x, y);
-    nowRatTrack[1].centroid = Point(x, y);
   }
 
 }
 
+/**
+ * Create the trackbars for adjusting processing parameters 
+ * such as Gaussian blur parameters and colour filtering 
+ * parameters.
+ */
 void createTrackbars() {
   cvNamedWindow("Trackbars");
   createTrackbar("Debug mode", trackbarWindowName, &DEBUG,
@@ -179,7 +194,13 @@ void printUsageMessage() {
 
 /**
  * Dumb dumb update. Use previous known position of objects 
- * to guess which of the current blobs they are.
+ * to guess which of the current blobs they are. Loop through 
+ * all the current blobs; the one closest to the previous known
+ * location of a tracked object (i.e., rat or iRat) is updated 
+ * as the new positions. 
+ * 
+ * @param blobs the list of blobs identified in the current blob.
+ *        the blobs are expected to have gone through all filtering.
  */
 void updatePositions(CBlobResult blobs) {
   int numBlobs = blobs.GetNumBlobs();
@@ -221,18 +242,47 @@ void updatePositions(CBlobResult blobs) {
   return;
 }
 
+/**
+ * Perform dilation and erosion to get rid of noise and fill holes.
+ * 
+ * @param src the source frame to perform morph ops on.
+ * @param dest the destination frame to put morphed image in.
+ * @param eroder the structuring element used in erode operation 
+ * @param dilater the structuring element used in dilate operation.
+ */
+void morphOps(Mat& src, Mat& dest, const Mat& eroder=getStructuringElement(MORPH_ELLIPSE, Size(3, 3)), 
+  const Mat dilater=getStructuringElement(MORPH_ELLIPSE, Size(6, 6))) {
+  erode(src, dest, eroder);
+  dilate(src, dest, dilater);
+  return;
+}
+
+
+/**
+ * Preprocess the image by doing Gaussian blur and turning it into greyscale. 
+ */
+void preprocess(Mat& src, Mat& dest) {
+  // make the kernel size odd. Else crash.  
+  int kernel = kernelSize % 2 == 0 ? kernelSize + 1 : kernelSize;
+  GaussianBlur(src, dest, Size(kernel, kernel), blurSigmaX, blurSigmaY);
+  // Convert frame to greyscale
+  cvtColor(dest, dest, CV_BGR2GRAY);
+  return;
+}
+
 int main(int argc, char** argv) {
+  // the video device number 
   int deviceNo;
-  int check;
+  // the video feed we're reading frames from. 
   VideoCapture cap;
+  // optionally able to write the frame, with bounding boxes etc. added, to file.
   VideoWriter writer;
-  vector<vector<Track> > trackHistory;
+  // indexing variable used for initialising Tracks; do not remove.
   int k;
   
   if(argc >= 4) {
-    
-    check = sscanf(argv[1], "%d", &deviceNo);
-    if(check) {
+
+    if(sscanf(argv[1], "%d", &deviceNo)) {
       // One thing (hopefully device number) matched, open video.
       cap.open(deviceNo); 
     } else { 
@@ -292,7 +342,6 @@ int main(int argc, char** argv) {
   cvNamedWindow("Filtered frame");
 
   createTrackbars();
-  
   setMouseCallback("Original frame", mouseCallback, NULL);
 
   vector<vector<Point> > contours;
@@ -316,24 +365,14 @@ int main(int argc, char** argv) {
       }
     }
 
-    // make the kernel size odd. Else crash.  
-    int kernel = kernelSize % 2 == 0 ? kernelSize + 1 : kernelSize;
-
-    /* Pre-process the image */
-    GaussianBlur(origFrame, frame, Size(kernel, kernel), blurSigmaX, blurSigmaY);
-    // Convert frame to greyscale
-    cvtColor(frame, frame, CV_BGR2GRAY);
+    preprocess(origFrame, frame);
   
     /* Do background subtraction */
     bg.operator () (frame, fore);
     bg.getBackgroundImage(back);
 
-    // Morph ops to get rid of noise
-    Mat eroder = getStructuringElement(MORPH_ELLIPSE, Size(3, 3));
-    Mat dilater = getStructuringElement(MORPH_ELLIPSE, Size(6, 6));
-    // Can just supply Mat() instead of eroder/dilator.
-    erode(fore, fore, eroder);
-    dilate(fore, fore, dilater);
+    // Morph ops to get rid of noise; erode and dilate.
+    morphOps(fore, fore);
 
     /* Do blob detection on the foreground */
     Mat blobFrame(origFrame.size(), origFrame.type());
@@ -341,11 +380,6 @@ int main(int argc, char** argv) {
     // Filter blobs by size to get rid of little bits 
     blobs.Filter(blobs, B_EXCLUDE, CBlobGetArea(), B_LESS, areaThresh);
     int numBlobs = blobs.GetNumBlobs();
-    /*
-    if(DEBUG) {
-      cout << "numBlobs" << numBlobs << endl;
-    }
-    */
 
     // Coordinates of top left of enlarged rectangle 
     int x, y; 
@@ -407,8 +441,7 @@ int main(int argc, char** argv) {
       /* Erode and dilate the filtered ROI, then calculate its area.
        * if it is a reasonable size, we say we found the rat.
        */
-      erode(bigMatRes, bigMatRes, eroder);
-      dilate(bigMatRes, bigMatRes, dilater);
+      morphOps(bigMatRes, bigMatRes);
       vector<vector<Point> > contours;
       vector<Vec4i> hierachy;
       
