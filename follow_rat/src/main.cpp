@@ -129,6 +129,28 @@ vector<Point> mouseClickRats;
 // Whether or not the mouse has been clicked during this frame.
 bool mouseClicked;
 
+/** 
+ * ROS-related stuff
+ */
+
+
+/**
+ * Return the vrot required to follow the rat. 
+ * Note negative vrot is right. 
+ * 
+ * @param  iRatLoc the location of the iRat; coordinates of blob centre.
+ * @param  iRatHeading the vector describing the heading direction of the iRat.
+ * @param  ratLoc      the location of the rat; coordinates of blob centre. 
+ * @param  mag         the magnitude of the rotational velocity.
+ * @return             the required rotational velocity of the iRat.
+ */
+double getDir(Point iRatLoc, Point iRatHeading, Point ratLoc, double mag) {
+  Point diff = ratLoc - iRatLoc;
+  Point change = diff - iRatHeading;
+  double turn = -1*iRatHeading.y*change.x < 0 ? -1 : 1;
+  return mag*turn;
+}
+
 /**
  * Click to specify where the rats are. Left mouse button specifies where 
  * rat 1 is, and right mouse button specifies where rat 2 is. 
@@ -299,6 +321,14 @@ int main(int argc, char** argv) {
   ros::NodeHandle node("~");
   // Make topic root parameter; if not specified from cmd/launch file, default to red rat.
   node.param("topic", topic, string("/irat_red")); 
+  string iRatVelTopic = topic + "/serial/cmdvel";
+  cout << "Publishing to: " << iRatVelTopic << endl;
+  // register a publisher for the iRat’s command velocity
+  // ros on the iRat would subscribe to this
+  ros::Publisher pub_cmdvel;
+  // message to publish
+  irat_msgs::IRatVelocity cmdvel_msg;// instantiate once only because of header squence number
+  pub_cmdvel = node.advertise<irat_msgs::IRatVelocity>(iRatVelTopic, 1);
 
   cout << "Ros initialised!" << endl;
   // the video device number 
@@ -309,7 +339,7 @@ int main(int argc, char** argv) {
   VideoWriter writer;
   // indexing variable used for initialising Tracks; do not remove.
   int k;
-  
+
   // colours...
   Scalar green = Scalar(0, 255, 0);
   Scalar blue = Scalar(255, 0, 0);
@@ -317,6 +347,7 @@ int main(int argc, char** argv) {
   Scalar colour = Scalar(rng.uniform(0, 255), rng.uniform(0, 255),
       rng.uniform(0, 255));
   
+
   if(argc >= 4) {
 
     if(sscanf(argv[1], "%d", &deviceNo)) {
@@ -526,6 +557,13 @@ int main(int argc, char** argv) {
       // putText(origFrame, "clicked here", mouseClickRats[i], FONT, 0.5, black, 2);
     }
 
+    // Work out which way the iRat should turn 
+    double vrot = getDir(nowTrack[0].centroid, nowTrack[0].centroid - prevTracks[0].centroid, 
+      nowRatTrack[0].centroid, 0.5); 
+    stringstream ss;
+    ss << vrot;
+    putText(origFrame, ss.str(), nowTrack[0].centroid + Point(30, 30), FONT, 0.5, blue, 2);
+
     imshow("Filtered frame", filteredFrame);
 		imshow("Processed", frame);
     // imshow("Background", back);
@@ -540,7 +578,7 @@ int main(int argc, char** argv) {
     colouredCount = 0;
     mouseClicked = false;
 
-    int keyPressed = waitKey(30);
+    int keyPressed = waitKey(5);
     switch(keyPressed) {
       case keyEsc: // Esc key - quit program
         return 0;
@@ -561,6 +599,9 @@ int main(int argc, char** argv) {
       default:
         cout << "Key pressed: " << keyPressed << endl;
 		}
+
+    
+
 	}
 
 	return 0;
