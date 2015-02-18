@@ -148,6 +148,7 @@ double getDir(Point iRatLoc, Point iRatHeading, Point ratLoc, double mag) {
   Point diff = ratLoc - iRatLoc;
   Point change = diff - iRatHeading;
   double turn = -1*iRatHeading.y*change.x < 0 ? -1 : 1;
+  // cout << "turn: " << turn << endl;
   return mag*turn;
 }
 
@@ -511,7 +512,7 @@ int main(int argc, char** argv) {
                 nowTrack[0].centroid = centre;
               }
 
-            } else { // haven't seen anything coloured yet
+            } else { // haven't seen anything colossred yet
               // This is our guess for where iRat is
               // cout << "Seeing something coloured for first time. It's the iRat." << endl;
               colouredCount++;
@@ -558,11 +559,13 @@ int main(int argc, char** argv) {
     }
 
     // Work out which way the iRat should turn 
-    double vrot = getDir(nowTrack[0].centroid, nowTrack[0].centroid - prevTracks[0].centroid, 
-      nowRatTrack[0].centroid, 0.5); 
-    stringstream ss;
-    ss << vrot;
-    putText(origFrame, ss.str(), nowTrack[0].centroid + Point(30, 30), FONT, 0.5, blue, 2);
+    if(!prevTracks.empty()) {
+      double vrot = getDir(nowTrack[0].centroid, nowTrack[0].centroid - prevTracks[0].centroid, 
+                           nowRatTrack[0].centroid, 0.5);  
+      stringstream ss;
+      ss << vrot;
+      putText(origFrame, ss.str(), Point(30, 30), FONT, 0.5, blue, 2);    
+    }
 
     imshow("Filtered frame", filteredFrame);
 		imshow("Processed", frame);
@@ -578,7 +581,7 @@ int main(int argc, char** argv) {
     colouredCount = 0;
     mouseClicked = false;
 
-    int keyPressed = waitKey(5);
+    int keyPressed = waitKey(100);
     switch(keyPressed) {
       case keyEsc: // Esc key - quit program
         return 0;
