@@ -20,6 +20,7 @@ target_link_libraries(follow ${OpenCV_LIBS})
 # For blobs library
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -I/usr/local/include/opencvblobslib")
 link_directories(/usr/local/lib/libopencvblobslib.a)
+# link_directories(/usr/lib/libv4l/v4l2convert.so)
 target_link_libraries(follow /usr/local/lib/libopencvblobslib.a)
 
 #set the default path for built executables to the "bin" directory

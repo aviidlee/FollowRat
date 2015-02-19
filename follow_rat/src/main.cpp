@@ -229,6 +229,8 @@ void printUsageMessage() {
  * 
  * @param blobs the list of blobs identified in the current blob.
  *        the blobs are expected to have gone through all filtering.
+ * @required this function is called after the iRat's position has been 
+ *           updated.
  */
 void updatePositions(CBlobResult blobs) {
   int numBlobs = blobs.GetNumBlobs();
@@ -242,8 +244,13 @@ void updatePositions(CBlobResult blobs) {
       Point diff = prevRatTracks[i].centroid - blobCentre;
       dist = diff.ddot(diff);
       if(dist < minDist) { 
-        candidate = blobCentre;
-        minDist = dist;
+        // Check if candidate is iRat; if so, ignore it. 
+        if(blobCentre == nowTrack[0].centroid) {
+          continue;
+        } else {
+          candidate = blobCentre;
+          minDist = dist;
+        }
       }
     }
     nowRatTrack[i].centroid = candidate;
@@ -534,6 +541,7 @@ int main(int argc, char** argv) {
           2, 8, 0);
     }
     
+    // Update positions of rats.    
     if(!prevTracks.empty() && !prevRatTracks.empty()) {
       updatePositions(blobs);
     }
