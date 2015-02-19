@@ -4,6 +4,11 @@
 #include <vector>
 #include <math.h>
 
+/**************** ROS includes *******************/
+#include <sensor_msgs/image_encodings.h>
+#include <irat_msgs/IRatVelocity.h>
+#include <ros/ros.h>
+
 /**************** OpenCV Stuff *******************/
 #include <opencv2/opencv.hpp>
 // For blob detection 
@@ -124,6 +129,29 @@ vector<Point> mouseClickRats;
 // Whether or not the mouse has been clicked during this frame.
 bool mouseClicked;
 
+/** 
+ * ROS-related stuff
+ */
+
+
+/**
+ * Return the vrot required to follow the rat. 
+ * Note negative vrot is right. 
+ * 
+ * @param  iRatLoc the location of the iRat; coordinates of blob centre.
+ * @param  iRatHeading the vector describing the heading direction of the iRat.
+ * @param  ratLoc      the location of the rat; coordinates of blob centre. 
+ * @param  mag         the magnitude of the rotational velocity.
+ * @return             the required rotational velocity of the iRat.
+ */
+double getDir(Point iRatLoc, Point iRatHeading, Point ratLoc, double mag) {
+  Point diff = ratLoc - iRatLoc;
+  Point change = diff - iRatHeading;
+  double turn = -1*iRatHeading.y*change.x < 0 ? -1 : 1;
+  // cout << "turn: " << turn << endl;
+  return mag*turn;
+}
+
 /**
  * Click to specify where the rats are. Left mouse button specifies where 
  * rat 1 is, and right mouse button specifies where rat 2 is. 
@@ -201,6 +229,8 @@ void printUsageMessage() {
  * 
  * @param blobs the list of blobs identified in the current blob.
  *        the blobs are expected to have gone through all filtering.
+ * @required this function is called after the iRat's position has been 
+ *           updated.
  */
 void updatePositions(CBlobResult blobs) {
   int numBlobs = blobs.GetNumBlobs();
@@ -214,8 +244,13 @@ void updatePositions(CBlobResult blobs) {
       Point diff = prevRatTracks[i].centroid - blobCentre;
       dist = diff.ddot(diff);
       if(dist < minDist) { 
-        candidate = blobCentre;
-        minDist = dist;
+        // Check if candidate is iRat; if so, ignore it. 
+        if(blobCentre == nowTrack[0].centroid) {
+          continue;
+        } else {
+          candidate = blobCentre;
+          minDist = dist;
+        }
       }
     }
     nowRatTrack[i].centroid = candidate;
@@ -286,6 +321,24 @@ Rect enlargeRect(Mat& origFrame, Rect& rect) {
 
 
 int main(int argc, char** argv) {
+  // topic root, e.g., irat_red; can be specified from commandline with _topic:/irat_[colour]
+  string topic;
+  // initialise node
+  ros::init(argc, argv, "DetectStuckness");
+  // Make node private 
+  ros::NodeHandle node("~");
+  // Make topic root parameter; if not specified from cmd/launch file, default to red rat.
+  node.param("topic", topic, string("/irat_red")); 
+  string iRatVelTopic = topic + "/serial/cmdvel";
+  cout << "Publishing to: " << iRatVelTopic << endl;
+  // register a publisher for the iRat’s command velocity
+  // ros on the iRat would subscribe to this
+  ros::Publisher pub_cmdvel;
+  // message to publish
+  irat_msgs::IRatVelocity cmdvel_msg;// instantiate once only because of header squence number
+  pub_cmdvel = node.advertise<irat_msgs::IRatVelocity>(iRatVelTopic, 1);
+
+  cout << "Ros initialised!" << endl;
   // the video device number 
   int deviceNo;
   // the video feed we're reading frames from. 
@@ -294,6 +347,7 @@ int main(int argc, char** argv) {
   VideoWriter writer;
   // indexing variable used for initialising Tracks; do not remove.
   int k;
+
   // colours...
   Scalar green = Scalar(0, 255, 0);
   Scalar blue = Scalar(255, 0, 0);
@@ -301,6 +355,7 @@ int main(int argc, char** argv) {
   Scalar colour = Scalar(rng.uniform(0, 255), rng.uniform(0, 255),
       rng.uniform(0, 255));
   
+
   if(argc >= 4) {
 
     if(sscanf(argv[1], "%d", &deviceNo)) {
@@ -366,11 +421,11 @@ int main(int argc, char** argv) {
   // According to docs, 9 is default for varThreadhold.
   BackgroundSubtractorMOG2 bg(HISTORY, 9, false);
   
-  
   CBlob currentBlob;
   bool readFrame;
 
-	for(EVER) {
+	while(ros::ok()) {
+    ros::spinOnce();
 		readFrame = cap.read(origFrame); // get new frame from camera
     // check if it's end of the video
     if(!readFrame) {
@@ -464,7 +519,7 @@ int main(int argc, char** argv) {
                 nowTrack[0].centroid = centre;
               }
 
-            } else { // haven't seen anything coloured yet
+            } else { // haven't seen anything colossred yet
               // This is our guess for where iRat is
               // cout << "Seeing something coloured for first time. It's the iRat." << endl;
               colouredCount++;
@@ -486,6 +541,7 @@ int main(int argc, char** argv) {
           2, 8, 0);
     }
     
+    // Update positions of rats.    
     if(!prevTracks.empty() && !prevRatTracks.empty()) {
       updatePositions(blobs);
     }
@@ -510,6 +566,15 @@ int main(int argc, char** argv) {
       // putText(origFrame, "clicked here", mouseClickRats[i], FONT, 0.5, black, 2);
     }
 
+    // Work out which way the iRat should turn 
+    if(!prevTracks.empty()) {
+      double vrot = getDir(nowTrack[0].centroid, nowTrack[0].centroid - prevTracks[0].centroid, 
+                           nowRatTrack[0].centroid, 0.5);  
+      stringstream ss;
+      ss << vrot;
+      putText(origFrame, ss.str(), Point(30, 30), FONT, 0.5, blue, 2);    
+    }
+
     imshow("Filtered frame", filteredFrame);
 		imshow("Processed", frame);
     // imshow("Background", back);
@@ -524,7 +589,7 @@ int main(int argc, char** argv) {
     colouredCount = 0;
     mouseClicked = false;
 
-    int keyPressed = waitKey(30);
+    int keyPressed = waitKey(100);
     switch(keyPressed) {
       case keyEsc: // Esc key - quit program
         return 0;
@@ -545,6 +610,9 @@ int main(int argc, char** argv) {
       default:
         cout << "Key pressed: " << keyPressed << endl;
 		}
+
+    
+
 	}
 
 	return 0;
