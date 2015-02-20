@@ -122,6 +122,10 @@ int numiRats;
 vector<Track> nowTrack;
 // Tracks from last frame for the iRats  
 vector<Track> prevTracks;
+// Need to keep history longer than just 1 frame... 
+vector<vector<Track> > iRatHistory;
+int histCount = 0;
+
 // Previous frame's tracks for rats 
 vector<Track> prevRatTracks;
 // Current tracks for rats 
@@ -164,12 +168,26 @@ vector<Point2f> newFeatures;
  */
 double getDir(Point iRatLoc, Point iRatHeading, Point ratLoc, double mag) {
   Point diff = ratLoc - iRatLoc;
+	// work out iRat's heading direction by averaging its last histCount
+	// directions. 
+	Point sum;
+	/*
+	for(int i = 1; i < iRatHistory.size(); i++) {
+		sum + iRatHistory[i] - 
+	}
+	*/
+	cout << "Got to getDir" << endl;
+	if(histCount == 4) {
+		iRatHeading = iRatLoc - iRatHistory[4][0].centroid;
+	} 
+	cout << "Modified iRatHeading" << endl;
   Point change = diff - iRatHeading;
   double turn = -1*iRatHeading.y*change.x < 0 ? -1 : 1;
   // Adjust turning velocity depending on how far to the left/right the rat is
   // of the iRat.
-  double vrot = mag*turn*(change.x/50) < mag ? mag*turn*(change.x/50) : mag;
-  return vrot;
+  //double vrot = mag*turn*(change.x/50) < mag ? mag*turn*(change.x/50) : mag;
+	
+  return -1*turn*mag;
 }
 
 /**
@@ -395,11 +413,11 @@ int main(int argc, char** argv) {
   // topic root, e.g., irat_red; can be specified from commandline with _topic:/irat_[colour]
   string topic;
   // initialise node
-  ros::init(argc, argv, "DetectStuckness");
+  ros::init(argc, argv, "FollowRat");
   // Make node private 
   ros::NodeHandle node("~");
   // Make topic root parameter; if not specified from cmd/launch file, default to red rat.
-  node.param("topic", topic, string("/irat_red")); 
+  node.param("topic", topic, string("/irat_green")); 
   string iRatVelTopic = topic + "/serial/cmdvel";
   cout << "Publishing to: " << iRatVelTopic << endl;
   // register a publisher for the iRat’s command velocity
@@ -408,6 +426,9 @@ int main(int argc, char** argv) {
   // message to publish
   irat_msgs::IRatVelocity cmdvel_msg;// instantiate once only because of header squence number
   pub_cmdvel = node.advertise<irat_msgs::IRatVelocity>(iRatVelTopic, 1);
+	iRatHistory.resize(5);
+	cout << "iRatHistorySize: " << iRatHistory.size() << endl;
+	int maxHistCount = 5;
 
   cout << "Ros initialised!" << endl;
   // the video device number 
@@ -513,7 +534,7 @@ int main(int argc, char** argv) {
   
     /* Do background subtraction */
     bg.operator () (frame, fore);
-    bg.getBackgroundImage(back);
+    // bg.getBackgroundImage(back);
 
     // Morph ops to get rid of noise; erode and dilate.
     morphOps(fore, fore);
@@ -667,8 +688,15 @@ int main(int argc, char** argv) {
     frame.copyTo(prevFrame);
     colouredCount = 0;
     mouseClicked = false;
-
-    /**** Issue velocity commands ****/
+		
+			iRatHistory[histCount] = nowTrack;
+			histCount++;
+    	if(histCount == maxHistCount) {
+				histCount = 0;
+			}
+		
+		cout << "Populated iRatHistory" << endl;
+		/**** Issue velocity commands ****/
     cmdvel_msg.header.stamp = ros::Time::now();
     // keep moving forward
     cmdvel_msg.magnitude = 0.05;

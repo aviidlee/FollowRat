@@ -144,6 +144,7 @@ int main(int argc, char** argv)
 			key = waitKey(0);
 			
 			if (mode == 'c') {
+				cout << "Current image: " << filename << endl;
 				continue;
 			} else if (key == Q_KEY){
 				cout << filename << " was skipped"<< endl;
@@ -170,25 +171,6 @@ int main(int argc, char** argv)
 	}
 	output_file.close();
 
-
-	/*
-
-	if (img.empty())
-	{
-		cout << "Error, image empty" << endl;
-		//system("pause");
-		return -1;
-	}
-
-
-	imshow(WINDOW_NAME, img);
-
-	imwrite("test.jpg", img);
-
-	waitKey(0);
-
-	destroyWindow(WINDOW_NAME);
-	*/
 	cout << "Done";
 
 	return 0;
