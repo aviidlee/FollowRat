@@ -1,0 +1,1 @@
+#define INPUTARGSINVALID -1
