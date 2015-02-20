@@ -157,15 +157,19 @@ vector<Point2f> newFeatures;
  * @param  iRatLoc the location of the iRat; coordinates of blob centre.
  * @param  iRatHeading the vector describing the heading direction of the iRat.
  * @param  ratLoc      the location of the rat; coordinates of blob centre. 
- * @param  mag         the magnitude of the rotational velocity.
+ * @param  mag         the maximum magnitude of the rotational velocity.
+ *                      ... was what it's supposed to be. Now it's just some 
+ *                      magnitude multiplier. Oops.
  * @return             the required rotational velocity of the iRat.
  */
 double getDir(Point iRatLoc, Point iRatHeading, Point ratLoc, double mag) {
   Point diff = ratLoc - iRatLoc;
   Point change = diff - iRatHeading;
   double turn = -1*iRatHeading.y*change.x < 0 ? -1 : 1;
-  // cout << "turn: " << turn << endl;
-  return mag*turn;
+  // Adjust turning velocity depending on how far to the left/right the rat is
+  // of the iRat.
+  double vrot = mag*turn*(change.x/50) < mag ? mag*turn*(change.x/50) : mag;
+  return vrot;
 }
 
 /**
