@@ -8,6 +8,7 @@
 #include <sensor_msgs/image_encodings.h>
 #include <irat_msgs/IRatVelocity.h>
 #include <ros/ros.h>
+#include <irat_msgs/IRatRangers.h>
 
 /**************** OpenCV Stuff *******************/
 #include <opencv2/opencv.hpp>
@@ -126,6 +127,10 @@ vector<Track> prevTracks;
 vector<vector<Track> > iRatHistory;
 int histCount = 0;
 int maxHistCount = 5;
+// whether or not velocity command should be decided by ranger callback or auton. prog
+bool rangersDecide = false;
+// The rotational velocity to be issued to the iRat 
+double vrot; 
 
 // Previous frame's tracks for rats 
 vector<Track> prevRatTracks;
@@ -135,6 +140,8 @@ vector<Track> nowRatTrack;
 vector<Point> mouseClickRats;
 // Whether or not the mouse has been clicked during this frame.
 bool mouseClicked;
+// The indices for the ranger values
+enum Wall {RIGHT = 0, CENTRE = 1, LEFT = 2};
 
 /** 
  * Optical flow related 
@@ -154,6 +161,29 @@ vector<float> err;
 vector<Point2f> oldFeatures;
 vector<Point2f> newFeatures;
 
+/**
+ * If the iRat is very close to a wall, then set the global boolean 
+ * rangersDecide to true and update the velocity command. If not, 
+ * set the variable to false and return so that the tracking program can
+ * decide the velocity. 
+ * 
+ * @param rangers the pointer to the ranger message. 
+ */
+void rangersCallback(irat_msgs::IRatRangersConstPtr rangers) {
+  // Check if we are heading straight into something.
+  // Use 10cm for now  
+  rangersDecide = true;
+  if(rangers->rangers[CENTRE].range < 0.1 || rangers->rangers[RIGHT].range < 0.05) {
+    // Arbitrarily turn left.
+    vrot = 0.5;
+  } else if(rangers->rangers[LEFT].range < 0.05) {
+    vrot = -0.5;
+  } else { // let the tracking program decide the velocity.
+    rangersDecide = false;
+  }
+
+  return;
+}
 
 /**
  * Return the vrot required to follow the rat. 
@@ -429,10 +459,17 @@ int main(int argc, char** argv) {
   // message to publish
   irat_msgs::IRatVelocity cmdvel_msg;// instantiate once only because of header squence number
   pub_cmdvel = node.advertise<irat_msgs::IRatVelocity>(iRatVelTopic, 1);
-	iRatHistory.resize(maxHistCount);
+	
+  iRatHistory.resize(maxHistCount);
 	cout << "iRatHistorySize: " << iRatHistory.size() << endl;
-
+  
+  string iRatRangersTopic = topic + "/serial/rangers";
+  ros::Subscriber sub_rangers =
+    node.subscribe<irat_msgs::IRatRangers>(iRatRangersTopic, 1, rangersCallback,
+      ros::VoidConstPtr(), ros::TransportHints().tcpNoDelay());
+  
   cout << "Ros initialised!" << endl;
+
   // the video device number 
   int deviceNo;
   // the video feed we're reading frames from. 
@@ -653,11 +690,10 @@ int main(int argc, char** argv) {
     }
 
     // We have been through all the blobs. Finalise loc of iRat
-    
     for(int i = 0; i < numiRats; i++) {
       putText(origFrame, "iRat", nowTrack[i].centroid, FONT_HERSHEY_SIMPLEX, 0.5, green, 2);
     }
-    
+    // Label position of rats 
     for(int i = 0; i < numRats; i++) {
       stringstream ss;
       ss << "Rat " << i;
@@ -665,11 +701,11 @@ int main(int argc, char** argv) {
       // putText(origFrame, "clicked here", mouseClickRats[i], FONT, 0.5, black, 2);
     }
 
+    // Store the current track information in history
     iRatHistory[histCount] = nowTrack;
 
     // Work out which way the iRat should turn 
-    double vrot;
-    if(!prevTracks.empty()) {
+    if(!prevTracks.empty() && !rangersDecide) {
       vrot = getDir(nowTrack[0].centroid, nowTrack[0].centroid - prevTracks[0].centroid, 
                            nowRatTrack[0].centroid, 0.5);  
       stringstream ss;
@@ -692,7 +728,7 @@ int main(int argc, char** argv) {
     frame.copyTo(prevFrame);
     colouredCount = 0;
     mouseClicked = false;
-    
+
 		/**** Issue velocity commands ****/
     cmdvel_msg.header.stamp = ros::Time::now();
     // keep moving forward
