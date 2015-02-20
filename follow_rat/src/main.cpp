@@ -14,6 +14,7 @@
 // For blob detection 
 #include <opencv2/features2d/features2d.hpp>
 #include <opencv2/objdetect/objdetect.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
 
 /**************** Blobs *************************/
 #include <BlobResult.h>
@@ -54,6 +55,7 @@
 
 // number of previous locations of blobs to keep track of.
 #define MAX_AGE
+#define VISUALISE true
 
 // Parameters for colour filtering.
 int bmin = 0;
@@ -130,8 +132,22 @@ vector<Point> mouseClickRats;
 bool mouseClicked;
 
 /** 
- * ROS-related stuff
+ * Optical flow related 
  */
+// Maximum number of features to track 
+#define MAX_FEATURES 500
+// Stopping condition for iterative algorithm optical flow 
+// Termination criteria are:
+//    CV_TERMCRIT_ITER: terminate after iterating twice the number of max_iter
+//    CV_TERMCRIT_EPS: terminate if accuracy falls below epsilon.
+TermCriteria termCrit(CV_TERMCRIT_ITER | CV_TERMCRIT_EPS, 20, 0.03);
+// Size of search window at each pyramid level for optical flow algorithm
+Size winSize(31, 31);
+// Vectors to pass into optical flow algorithm 
+vector<uchar> status;
+vector<float> err;
+vector<Point2f> oldFeatures;
+vector<Point2f> newFeatures;
 
 
 /**
@@ -141,15 +157,19 @@ bool mouseClicked;
  * @param  iRatLoc the location of the iRat; coordinates of blob centre.
  * @param  iRatHeading the vector describing the heading direction of the iRat.
  * @param  ratLoc      the location of the rat; coordinates of blob centre. 
- * @param  mag         the magnitude of the rotational velocity.
+ * @param  mag         the maximum magnitude of the rotational velocity.
+ *                      ... was what it's supposed to be. Now it's just some 
+ *                      magnitude multiplier. Oops.
  * @return             the required rotational velocity of the iRat.
  */
 double getDir(Point iRatLoc, Point iRatHeading, Point ratLoc, double mag) {
   Point diff = ratLoc - iRatLoc;
   Point change = diff - iRatHeading;
   double turn = -1*iRatHeading.y*change.x < 0 ? -1 : 1;
-  // cout << "turn: " << turn << endl;
-  return mag*turn;
+  // Adjust turning velocity depending on how far to the left/right the rat is
+  // of the iRat.
+  double vrot = mag*turn*(change.x/50) < mag ? mag*turn*(change.x/50) : mag;
+  return vrot;
 }
 
 /**
@@ -319,6 +339,57 @@ Rect enlargeRect(Mat& origFrame, Rect& rect) {
     return enlarged;
 }
 
+void opticalFlow(Mat& greyFrame, Mat& prevFrame, Mat& displayFrame) {
+  // Check if we have a previous frame
+  if(!prevFrame.empty()) {
+    goodFeaturesToTrack(greyFrame, newFeatures, MAX_FEATURES, 0.01, 5, Mat(), 3, 
+                        0, 0.04);
+    if(newFeatures.empty()) {
+      cout << "Can't find any good features do detect!!!" << endl;
+    }
+  } else if(!oldFeatures.empty()) {
+    calcOpticalFlowPyrLK(prevFrame, greyFrame, oldFeatures, newFeatures, status, 
+                         err, winSize, 3, termCrit, 0, 0.001);
+
+    // Variables to store the differences in position of the tracked features
+    int xDiff, yDiff;
+    // The sum of the magnitudes of the vectors 
+    unsigned int totalDiff = 0;
+    // The sums of x and y components, signs retained. 
+    int xSum = 0;
+    int ySum = 0;
+    cout << "Doing optical flow..." << endl;
+    // Calculate how much the features have moved. 
+    for(vector<Point2f>::size_type i = 0; i < oldFeatures.size(); i++) {
+      xDiff = int(newFeatures[i].x - oldFeatures[i].x);
+      yDiff = int(newFeatures[i].y - oldFeatures[i].y);
+      totalDiff += (fabs(xDiff) + fabs(yDiff));
+      xSum += xDiff;
+      ySum += yDiff; 
+
+      cout << "Drawing optical flow stuf..." << endl;
+      // Draw circles around tracked features and lines to indicate flow.
+      if((newFeatures[i].x - oldFeatures[i].x) > 0) {
+        line(displayFrame, newFeatures[i], oldFeatures[i], 
+          Scalar(0, 0, 255), 1, 1, 0);
+
+        circle(displayFrame, newFeatures[i], 2, Scalar(255, 0, 0), 1, 1, 0);
+      } else {
+        line(displayFrame, newFeatures[i], oldFeatures[i], Scalar(0, 255, 0), 1, 1, 0);
+        circle(displayFrame, newFeatures[i], 2, Scalar(255, 0, 0), 1, 1, 0);
+      }
+
+    } 
+    // Get some new good features to track
+    goodFeaturesToTrack(greyFrame, newFeatures, MAX_FEATURES, 0.01, 10, Mat(), 3, 0, 0.04);  
+  }
+  swap(oldFeatures, newFeatures);
+  newFeatures.clear();
+  if(oldFeatures.empty()) {
+    cout << "what?! no old features???" << endl;
+  }
+  return;
+}
 
 int main(int argc, char** argv) {
   // topic root, e.g., irat_red; can be specified from commandline with _topic:/irat_[colour]
@@ -354,7 +425,9 @@ int main(int argc, char** argv) {
   Scalar black = Scalar(0, 0, 0);
   Scalar colour = Scalar(rng.uniform(0, 255), rng.uniform(0, 255),
       rng.uniform(0, 255));
-  
+
+  // Objects to store images
+  Mat prevFrame;
 
   if(argc >= 4) {
 
@@ -541,6 +614,9 @@ int main(int argc, char** argv) {
           2, 8, 0);
     }
     
+    // Do optical flow
+    opticalFlow(frame, prevFrame, origFrame); 
+    
     // Update positions of rats.    
     if(!prevTracks.empty() && !prevRatTracks.empty()) {
       updatePositions(blobs);
@@ -567,12 +643,14 @@ int main(int argc, char** argv) {
     }
 
     // Work out which way the iRat should turn 
+    double vrot;
     if(!prevTracks.empty()) {
-      double vrot = getDir(nowTrack[0].centroid, nowTrack[0].centroid - prevTracks[0].centroid, 
+      vrot = getDir(nowTrack[0].centroid, nowTrack[0].centroid - prevTracks[0].centroid, 
                            nowRatTrack[0].centroid, 0.5);  
       stringstream ss;
       ss << vrot;
       putText(origFrame, ss.str(), Point(30, 30), FONT, 0.5, blue, 2);    
+      line(origFrame, prevTracks[0].centroid, nowTrack[0].centroid, green);
     }
 
     imshow("Filtered frame", filteredFrame);
@@ -586,10 +664,19 @@ int main(int argc, char** argv) {
     // Update track 
     prevTracks = nowTrack;
     prevRatTracks = nowRatTrack;
+    frame.copyTo(prevFrame);
     colouredCount = 0;
     mouseClicked = false;
 
-    int keyPressed = waitKey(100);
+    /**** Issue velocity commands ****/
+    cmdvel_msg.header.stamp = ros::Time::now();
+    // keep moving forward
+    cmdvel_msg.magnitude = 0.05;
+    cmdvel_msg.angle = vrot;
+    pub_cmdvel.publish(cmdvel_msg);
+    cmdvel_msg.header.seq++;
+
+    int keyPressed = waitKey(1);
     switch(keyPressed) {
       case keyEsc: // Esc key - quit program
         return 0;
