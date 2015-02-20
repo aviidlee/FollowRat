@@ -125,6 +125,7 @@ vector<Track> prevTracks;
 // Need to keep history longer than just 1 frame... 
 vector<vector<Track> > iRatHistory;
 int histCount = 0;
+int maxHistCount = 5;
 
 // Previous frame's tracks for rats 
 vector<Track> prevRatTracks;
@@ -176,18 +177,20 @@ double getDir(Point iRatLoc, Point iRatHeading, Point ratLoc, double mag) {
 		sum + iRatHistory[i] - 
 	}
 	*/
-	cout << "Got to getDir" << endl;
-	if(histCount == 4) {
-		iRatHeading = iRatLoc - iRatHistory[4][0].centroid;
+	if(histCount == maxHistCount-1) {
+		iRatHeading = iRatLoc - iRatHistory[maxHistCount-1][0].centroid;
 	} 
-	cout << "Modified iRatHeading" << endl;
+  histCount++;
+  if(histCount == maxHistCount) {
+    histCount = 0;
+  }
   Point change = diff - iRatHeading;
-  double turn = -1*iRatHeading.y*change.x < 0 ? -1 : 1;
+  double turn = iRatHeading.y*change.x < 0 ? -1 : 1;
   // Adjust turning velocity depending on how far to the left/right the rat is
   // of the iRat.
   //double vrot = mag*turn*(change.x/50) < mag ? mag*turn*(change.x/50) : mag;
 	
-  return -1*turn*mag;
+  return turn*mag;
 }
 
 /**
@@ -426,9 +429,8 @@ int main(int argc, char** argv) {
   // message to publish
   irat_msgs::IRatVelocity cmdvel_msg;// instantiate once only because of header squence number
   pub_cmdvel = node.advertise<irat_msgs::IRatVelocity>(iRatVelTopic, 1);
-	iRatHistory.resize(5);
+	iRatHistory.resize(maxHistCount);
 	cout << "iRatHistorySize: " << iRatHistory.size() << endl;
-	int maxHistCount = 5;
 
   cout << "Ros initialised!" << endl;
   // the video device number 
@@ -663,6 +665,8 @@ int main(int argc, char** argv) {
       // putText(origFrame, "clicked here", mouseClickRats[i], FONT, 0.5, black, 2);
     }
 
+    iRatHistory[histCount] = nowTrack;
+
     // Work out which way the iRat should turn 
     double vrot;
     if(!prevTracks.empty()) {
@@ -688,14 +692,7 @@ int main(int argc, char** argv) {
     frame.copyTo(prevFrame);
     colouredCount = 0;
     mouseClicked = false;
-		
-			iRatHistory[histCount] = nowTrack;
-			histCount++;
-    	if(histCount == maxHistCount) {
-				histCount = 0;
-			}
-		
-		cout << "Populated iRatHistory" << endl;
+    
 		/**** Issue velocity commands ****/
     cmdvel_msg.header.stamp = ros::Time::now();
     // keep moving forward
