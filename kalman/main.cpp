@@ -97,7 +97,7 @@ int main(int argc, char *argv[]) {
 	measured_location.push_back(init_location);
 
 	// Create Kalman filter and initialise
-	KalmanFilter KF(6, 2, 0); // 6 variables, 2 meaurements
+	KalmanFilter KF(4, 2, 0); // 6 variables, 2 meaurements
 	init_kalman(&KF, &init_location);
 	Mat_<float> measurement(2,1); measurement.setTo(Scalar(0));
 
@@ -118,22 +118,24 @@ int main(int argc, char *argv[]) {
 
 
 		// incorporate measurement into model and do correction
+		measurement(0) = measPt.x;
+		measurement(1) = measPt.y;
 		Mat estimated = KF.correct(measurement);
 		Point statePt(estimated.at<float>(0),estimated.at<float>(1));
 		kalman_estmte.push_back(statePt);
 			
-		for (int i = 0; i < kalman_estmte.size()-1; i++) {
-			line(frame, kalman_estmte[i], kalman_estmte[i+1], 
-					Scalar(0,0,255), 1);
-					here(kalman_estmte[i].y);
-		}
 
 		for (int i = 0; i < measured_location.size()-1; i++) {
 			line(frame, measured_location[i], measured_location[i+1], 
 					Scalar(255,0,0), 1);
 		}
+		for (int i = 0; i < kalman_estmte.size()-1; i++) {
+			line(frame, kalman_estmte[i], kalman_estmte[i+1], 
+					Scalar(0,0,255), 1);
+		}
 
-		circle(frame, measPt, 5, Scalar(0,255,0), 2);
+		circle(frame, measPt, 5, Scalar(255, 0, 0), 2);
+		circle(frame, statePt, 5, Scalar(0, 0, 255), 2);
 
 		imshow(WINDOW_NAME, frame);
 		imshow("gray", gray);
@@ -216,7 +218,7 @@ Point find_obj(SurfFeatureDetector *det, Mat *scene, Mat *obj_desc){
 void init_kalman(KalmanFilter *KF, Point *init_pos) {
 	//Set up kalman filter
 	//KalmanFilter KF(6, 2, 0); 
-	
+	/*	
 	Mat_<float> state(6, 1);
 	Mat processNoise(6, 1, CV_32F);
 	
@@ -243,11 +245,11 @@ void init_kalman(KalmanFilter *KF, Point *init_pos) {
 	setIdentity(KF->processNoiseCov, Scalar::all(1e-4));
 	setIdentity(KF->measurementNoiseCov, Scalar::all(1e-1));
 	setIdentity(KF->errorCovPost, Scalar::all(.1));
-	
+	*/
 	//-----------------------------------------------------------------------
 	
 	//KalmanFilter KF(4, 2, 0);
-	/*
+	
 	KF->transitionMatrix = *(Mat_<float>(4, 4) << 
 			1,0,1,0,   
 			0,1,0,1,  
@@ -265,7 +267,7 @@ void init_kalman(KalmanFilter *KF, Point *init_pos) {
 	 setIdentity(KF->processNoiseCov, Scalar::all(1e-4));
 	 setIdentity(KF->measurementNoiseCov, Scalar::all(1e-1));
 	 setIdentity(KF->errorCovPost, Scalar::all(.1));
-	*/
+
 
 }
 
