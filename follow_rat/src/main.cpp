@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <math.h>
+#include <climits>
 
 /**************** ROS includes *******************/
 #include <sensor_msgs/image_encodings.h>
@@ -21,8 +22,6 @@
 #include <BlobResult.h>
 
 /**************** Constants *********************/
-// Syntactic sugar
-#define EVER ;;
 // Parameter for background subtraction
 #define HISTORY 100
 // Maximum distance possible (squared) in a standard webcam frame.
@@ -161,6 +160,10 @@ vector<float> err;
 vector<Point2f> oldFeatures;
 vector<Point2f> newFeatures;
 
+/***** Kalman *****/
+const int MINHESSIAN = 400;
+
+
 /**
  * If the iRat is very close to a wall, then set the global boolean 
  * rangersDecide to true and update the velocity command. If not, 
@@ -229,6 +232,7 @@ double getDir(Point iRatLoc, Point iRatHeading, Point ratLoc, double mag) {
  */
 void mouseCallback(int event, int x, int y, int flags, void* userdata) {
   mouseClicked = true;
+
   // Click to specify position of rat 1
   if(event == EVENT_LBUTTONDOWN && numRats > 0) {
     if(DEBUG) {
@@ -442,6 +446,113 @@ void opticalFlow(Mat& greyFrame, Mat& prevFrame, Mat& displayFrame) {
   return;
 }
 
+/** initialise the kalman filter with the given point as the initial position.
+ * Takes a pointer to a Kalman filter to fill in and a pointer to a Point
+ * representing the initial position of the object to be tracked.
+*/
+void init_kalman(KalmanFilter *KF, Point *init_pos) {
+  //Set up kalman filter
+  //KalmanFilter KF(6, 2, 0); 
+  
+  Mat_<float> state(6, 1);
+  Mat processNoise(6, 1, CV_32F);
+  
+  KF->statePre.at<float>(0) = init_pos->x;
+  KF->statePre.at<float>(1) = init_pos->y;
+  KF->statePre.at<float>(2) = 0;
+  KF->statePre.at<float>(3) = 0;
+  KF->statePre.at<float>(4) = 0;
+  KF->statePre.at<float>(5) = 0;
+  // Create transition matrix which relates how meausrements are used
+  KF->transitionMatrix = *(Mat_<float>(6, 6) << 
+      1,0,1,0,0.5,0,   
+      0,1,0,1,0,0.5,  
+      0,0,1,0,1,0, 
+      0,0,0,1,0,1,  
+      0,0,0,0,1,0,  
+      0,0,0,0,0,1);
+  
+  KF->measurementMatrix = *(Mat_<float>(2,6)<<
+      1,0,1,0,0.5,0,
+      0,1,0,1,0,0.5);
+
+  setIdentity(KF->measurementMatrix);
+  setIdentity(KF->processNoiseCov, Scalar::all(1e-4));
+  setIdentity(KF->measurementNoiseCov, Scalar::all(1e-1));
+  setIdentity(KF->errorCovPost, Scalar::all(.1));
+  
+  //-----------------------------------------------------------------------
+  
+  //KalmanFilter KF(4, 2, 0);
+  /*
+  KF->transitionMatrix = *(Mat_<float>(4, 4) << 
+      1,0,1,0,   
+      0,1,0,1,  
+      0,0,1,0,  
+      0,0,0,1);
+
+  Mat_<float> measurement(2,1); measurement.setTo(Scalar(0));
+   
+   // init...
+   KF->statePre.at<float>(0) = init_pos->x;
+   KF->statePre.at<float>(1) = init_pos->y;
+   KF->statePre.at<float>(2) = 0;
+   KF->statePre.at<float>(3) = 0;
+   setIdentity(KF->measurementMatrix);
+   setIdentity(KF->processNoiseCov, Scalar::all(1e-4));
+   setIdentity(KF->measurementNoiseCov, Scalar::all(1e-1));
+   setIdentity(KF->errorCovPost, Scalar::all(.1));
+   */
+}
+
+/**
+ * [findClosest description]
+ * @param  points [description]
+ * @param  point  [description]
+ * @return        [description]
+ */
+Point findClosest(const vector<Point>& points, const Point& point) {
+  Point diff;
+  Point closest;
+  int dist;
+  int minDist = INT_MAX;
+  for(int i = 0; i < points.size(); i++) {
+    diff = point - points[i];
+    dist = diff.ddot(diff);
+    if(dist < minDist) {
+      closest = points[i];
+      minDist = dist;
+    }
+  }
+
+  return closest;
+}
+
+/**
+ * Takes a list of points which could represent a rat, and the Kalman
+ * Filter which has been set up to predict that rat. It gets a prediction
+ * of the rat's location from the Kalman filter, and then chooses the point
+ * from the list which is closest to the predicted location. It updates the
+ * Kalman filter with this chosen location. The 'corrected' prediction is 
+ * retrieved from the filter and returned.  
+ * 
+ * @param  kf           [description]
+ * @param  possibleLocs [description]
+ * @return              [description]
+ */
+Point kalmanRatPredict(KalmanFilter& kf, const vector<Point>& possibleLocs) {
+  Mat prediction = kf.predict();
+  Point predictedPt(prediction.at<float>(0), prediction.at<float>(1));
+  Point ratLoc = findClosest(possibleLocs, predictedPt);
+  Mat_<float> meas(2, 1);
+  meas.setTo(Scalar(0));
+  meas(0) = ratLoc.x;
+  meas(1) = ratLoc.y;
+  Mat estimated = kf.correct(meas); 
+  Point statePt(estimated.at<float>(0), estimated.at<float>(1));
+  return statePt;
+}
+
 int main(int argc, char** argv) {
   // topic root, e.g., irat_red; can be specified from commandline with _topic:/irat_[colour]
   string topic;
@@ -483,11 +594,21 @@ int main(int argc, char** argv) {
   Scalar green = Scalar(0, 255, 0);
   Scalar blue = Scalar(255, 0, 0);
   Scalar black = Scalar(0, 0, 0);
+  Scalar red = Scalar(0, 0, 255);
   Scalar colour = Scalar(rng.uniform(0, 255), rng.uniform(0, 255),
       rng.uniform(0, 255));
 
-  // Objects to store images
+  // Store last frame for optical flow. 
   Mat prevFrame;
+
+  // Create Kalman filter and initialise
+  KalmanFilter KF(4, 2, 0); // 6 variables, 2 meaurements
+ 
+  // For storing measurements to feed back into KF. 
+  Mat_<float> measurement(2,1); 
+  measurement.setTo(Scalar(0));
+  vector<Point> kalmanEstim;
+  bool kalmanInitialised = false;
 
   if(argc >= 4) {
 
@@ -556,6 +677,7 @@ int main(int argc, char** argv) {
   
   CBlob currentBlob;
   bool readFrame;
+  vector<Point> ratMotionHist;
 
 	while(ros::ok()) {
     ros::spinOnce();
@@ -595,8 +717,12 @@ int main(int argc, char** argv) {
     // Get bounding boxes for blobs
     // Don't need them stored to draw them, but we will need them later.
     vector<Rect> boundingBoxes;
+    // Centroids of blobs 
+    vector<Point> centroids;
+
     for(int i = 0; i < numBlobs; i++) {
       currentBlob = blobs.GetBlob(i);
+      centroids.push_back(currentBlob.getCenter());
       currentBlob.FillBlob(frame, Scalar(0, 255, 0));
       Rect currentRect = currentBlob.GetBoundingBox();
       boundingBoxes.push_back(currentBlob.GetBoundingBox());
@@ -674,25 +800,45 @@ int main(int argc, char** argv) {
           2, 8, 0);
     }
     
+    // Do Kalman filter stuff. 
+    if(kalmanInitialised) {
+      Point kfPred = kalmanRatPredict(KF, centroids);
+      kalmanEstim.push_back(kfPred);
+      // Draw the Kalman predictions 
+      for (int i = 0; i < kalmanEstim.size()-1; i++) {
+        line(origFrame, kalmanEstim[i], kalmanEstim[i+1], 
+            red, 1);
+      } 
+      // Draw Kalman's predicted point.
+      circle(origFrame, kfPred, 5, red, 2);
+    }
+
     // Do optical flow
-    opticalFlow(frame, prevFrame, origFrame); 
+    // opticalFlow(frame, prevFrame, origFrame); 
     
     // Update positions of rats.    
     if(!prevTracks.empty() && !prevRatTracks.empty()) {
       updatePositions(blobs);
     }
     
-    // Override deduced position with manual input if there is any.
+    // Override deduced position of rats with manual input if there is any.
     if(mouseClicked) {
       for(int i = 0; i < numRats; i++) {
         nowRatTrack[i].centroid = mouseClickRats[i];
       }
     }
 
+    // Initialise Kalman Filter when the rat is identified with mouse click.
+    if(mouseClicked && !kalmanInitialised) {
+      init_kalman(&KF, &mouseClickRats[0]);
+      kalmanInitialised = true;
+    }
+
     // We have been through all the blobs. Finalise loc of iRat
     for(int i = 0; i < numiRats; i++) {
       putText(origFrame, "iRat", nowTrack[i].centroid, FONT_HERSHEY_SIMPLEX, 0.5, green, 2);
     }
+
     // Label position of rats 
     for(int i = 0; i < numRats; i++) {
       stringstream ss;
@@ -703,6 +849,14 @@ int main(int argc, char** argv) {
 
     // Store the current track information in history
     iRatHistory[histCount] = nowTrack;
+    // Keep history all the way from beginning of program to now. 
+    // NB this is what the *nearest-blob method* detected. It is here for 
+    // comparison with the KF predictions.
+    ratMotionHist.push_back(nowRatTrack[0].centroid);
+    // Draw the rat history 
+    for(int i = 0; i < ratMotionHist.size() - 1; i++) {
+      line(origFrame, ratMotionHist[i], ratMotionHist[i+1], blue);
+    } 
 
     // Work out which way the iRat should turn 
     if(!prevTracks.empty() && !rangersDecide) {
