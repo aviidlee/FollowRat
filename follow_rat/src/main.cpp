@@ -971,7 +971,7 @@ int main(int argc, char** argv) {
         // or the oldest frame you can get. 
         int histSize = iRatKalmanEstim.size();
         Point oldPoint = histSize > maxHistCount ? 
-                        iRatKalmanEstim[histSize-maxHistCount] : iRatKalmanEstim[histSize-1];
+                        iRatKalmanEstim[histSize-maxHistCount] : iRatKalmanEstim[0];
         Point heading = iRatKalmanEstim[histSize-1] - oldPoint;
 				vrot = getDir(nowTrack[0].centroid, heading, kalmanEstim[kalmanEstim.size()-1], 0.5, origFrame);
       } else {
