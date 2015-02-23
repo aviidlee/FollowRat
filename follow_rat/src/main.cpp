@@ -50,7 +50,8 @@
 #define FRAMERATE 15
 // the maximum distance an two objects can be apart between frames for them
 // to be identified as the same object.
-#define DIST_THRESH (640/4)*(640/4)
+//#define DIST_THRESH (640/4)*(640/4)
+#define DIST_THRESH 640*640
 // codes for keyboard presses 
 #define keyP 1048688
 #define keyEsc 1048603
@@ -72,7 +73,7 @@ int WC = 40; // amount to increase width by
 int WH = 30; // amount to increase height by
 
 // Misc
-int DEBUG = 0;
+int DEBUG = 1;
 
 using namespace cv;
 using namespace std;
@@ -822,11 +823,6 @@ int main(int argc, char** argv) {
     blobs.Filter(blobs, B_EXCLUDE, CBlobGetArea(), B_LESS, areaThresh);
     int numBlobs = blobs.GetNumBlobs();
    
-    // Number of coloured objects seen so far. 
-    int colouredCount = 0;
-    // list of locations of coloured objects 
-    vector<Point> coloured;
-
     // Get bounding boxes for blobs
     // Don't need them stored to draw them, but we will need them later.
     vector<Rect> boundingBoxes;
@@ -881,6 +877,7 @@ int main(int argc, char** argv) {
             colouredBlobs.push_back(centre);
             // Draw a circle on the filtered blob. 
             circle(origFrame, centre, 30, Scalar(0, 0, 255));
+            debugMsg("FOUND SOMETHING COLOURED YAYA BEANS");
           }
         }
       }
@@ -889,7 +886,7 @@ int main(int argc, char** argv) {
       rectangle(origFrame, enlarged.tl(), enlarged.br(), colour,
           2, 8, 0);
     }
-    
+     
     // old dumb way for comparison; find closest thing to previous 
     if(!colouredBlobs.empty() && !prevTracks.empty()) {
       nowTrack[0].centroid = findClosest(colouredBlobs, prevTracks[0].centroid);
@@ -905,7 +902,6 @@ int main(int argc, char** argv) {
     } 
 
     if(iRatKalmanInit) {
-      debugMsg("Doing iRat Kalman stufff...");
       Point kfPred;
       /**
        * Update the iRat's Kalman filter. if no objects of correct
@@ -1021,10 +1017,13 @@ int main(int argc, char** argv) {
 
     // Work out which way the iRat should turn 
     if(!prevTracks.empty() && !rangersDecide) {
+      debugMsg("Yoyoyo");
 			if(kalmanInitialised && iRatKalmanInit) {
+        debugMsg("Adventure time!");
         // Get heading direction of iRat by using the predicted point from 5 frames ago, 
         // or the oldest frame you can get. 
         int histSize = iRatKalmanEstim.size();
+        cout << "histSize is " << histSize << endl;
         Point oldPoint = histSize > maxHistCount ? 
                         iRatKalmanEstim[histSize-maxHistCount] : iRatKalmanEstim[0];
 
@@ -1033,8 +1032,6 @@ int main(int argc, char** argv) {
 				vrot = getDir(iRatKalmanEstim[histSize-1], heading, kalmanEstim[kalmanEstim.size()-1], 0.5, origFrame);
       } else {
         debugMsg("yay beans");
-        debugMsg("nowTrack is OK");
-        debugMsg("nowRatTrack is OK");
         // Use the old dumb code to find position of rat.  
       	vrot = getDir(nowTrack[0].centroid, nowTrack[0].centroid - prevTracks[0].centroid, 
                            nowRatTrack[0].centroid, 0.5, origFrame);  
@@ -1046,7 +1043,7 @@ int main(int argc, char** argv) {
       debugMsg("Worked out which way to turn");
     }
 
-    debugMsg("Hello world");
+    debugMsg("Doing the harmless stuff now.");
 
     //imshow("Filtered frame", filteredFrame);
 		//imshow("Processed", frame);
@@ -1060,7 +1057,6 @@ int main(int argc, char** argv) {
     prevTracks = nowTrack;
     prevRatTracks = nowRatTrack;
     frame.copyTo(prevFrame);
-    colouredCount = 0;
     mouseClicked = false;
     debugMsg("Updated stuff");
 
