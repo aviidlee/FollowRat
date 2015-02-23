@@ -573,7 +573,6 @@ void removePoint(vector<Point>& points, const Point& exclude) {
   vector<Point>::iterator iter = find(points.begin(), points.end(), exclude);
   if(iter != points.end()) {
     points.erase(iter);
-    cout << "Erased point" << endl;
   } 
 
   return;
