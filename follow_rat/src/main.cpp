@@ -576,6 +576,27 @@ Point kalmanRatPredict(KalmanFilter& kf, const vector<Point>& possibleLocs) {
 }
 
 /**
+ * Get Kalman filter to predict location of iRat, then feeds in the location of the 
+ * iRat as determined by colouring filtering to 'correct' the Kalman filter. 
+ * 
+ * @param  kf      [description]
+ * @param  correct [description]
+ * @return         [description]
+ */
+Point kalmanRobotPredict(KalmanFilter& kf, const Point& correct) {
+  Mat prediction = kf.predict();
+  Point predictedPt(prediction.at<float>(0), prediction.at<float>(1));
+
+  Mat_<float> meas(2, 1);
+  meas.setTo(Scalar(0));
+  meas(0) = correct.x;
+  meas(1) = correct.y;
+  Mat estimated = kf.correct(meas); 
+  Point statePt(estimated.at<float>(0), estimated.at<float>(1));
+  return statePt;
+}
+
+/**
  * Removes the Point exclude from the vector points 
  * 
  * @param points  [description]
@@ -857,7 +878,7 @@ int main(int argc, char** argv) {
     }
     
     if(iRatKalmanInit) {
-      Point kfPred = kalmanRatPredict(iRatKF, centroids);
+      Point kfPred = kalmanRobotPredict(iRatKF, nowTrack[0].centroid);
       iRatKalmanEstim.push_back(kfPred);
       // Draw the Kalman predictions 
       for (int i = 0; i < iRatKalmanEstim.size()-1; i++) {
@@ -868,7 +889,7 @@ int main(int argc, char** argv) {
       circle(origFrame, kfPred, 5, green, 2);   
     } else {
       init_kalman(&iRatKF, &nowTrack[0].centroid);
-      kalmanInitialised = true;
+      iRatKalmanInit = true;
       cout << "Kalman filter initialised for iRat" << endl;
 
     }
@@ -997,26 +1018,23 @@ int main(int argc, char** argv) {
     cmdvel_msg.header.seq++;
 
     int keyPressed = waitKey(playSpeed);
-    switch(keyPressed) {
-      case 27: // Esc key - quit program
-        return 0;
-      case 'p': // p - for pause 
-        paused = !paused;
-        if(paused) {
-          cout << "Program paused." << endl;
-          while(paused) {
-            switch(waitKey(0)) {
-              case 'p':
-                paused = false;
-                break;
-            }
+    if(keyPressed == 27 || keyPressed == keyEsc) {
+      return 0;
+    } else if(keyPressed == 'p' || keyPressed == keyP) {
+      paused = !paused;
+      if(paused) {
+        cout << "Program paused." << endl;
+        while(paused) {
+          int key = waitKey(0);
+          if(key == 'p' || key == keyP) {
+            paused = false;
           }
         }
-      case -1: // no key pressed 
-        break;
-      default:
-        cout << "Key pressed: " << keyPressed << endl;
-		}
+      }
+    } else {
+      // No key pressed, do nothing.
+    }  
+
 	}
 
 	return 0;
