@@ -70,7 +70,7 @@ int WC = 40; // amount to increase width by
 int WH = 30; // amount to increase height by
 
 // Misc
-int DEBUG = 1;
+int DEBUG = 0;
 
 using namespace cv;
 using namespace std;
@@ -611,6 +611,13 @@ void removePoint(vector<Point>& points, const Point& exclude) {
   return;
 }
 
+void debugMsg(string msg) {
+  if(DEBUG) {
+    cout << "DEBUG: " << msg << endl;
+  }
+  return;
+}
+
 int main(int argc, char** argv) {
   // topic root, e.g., irat_red; can be specified from commandline with _topic:/irat_[colour]
   string topic;
@@ -755,8 +762,9 @@ int main(int argc, char** argv) {
   CBlob currentBlob;
   bool readFrame;
   vector<Point> ratMotionHist;
+  vector<Point> colouredBlobs;
 
-	while(ros::ok()) {
+  while(ros::ok()) {
     ros::spinOnce();
 		readFrame = cap.read(origFrame); // get new frame from camera
     // check if it's end of the video
@@ -788,14 +796,14 @@ int main(int argc, char** argv) {
     int colouredCount = 0;
     // list of locations of coloured objects 
     vector<Point> coloured;
-    // The minimum squared distance between a coloured blob and previous iRat location.
-    double minDist = 640*640;
 
     // Get bounding boxes for blobs
     // Don't need them stored to draw them, but we will need them later.
     vector<Rect> boundingBoxes;
     // Centroids of blobs 
     vector<Point> centroids;
+
+    debugMsg("Starting the for looppp");
 
     for(int i = 0; i < numBlobs; i++) {
       currentBlob = blobs.GetBlob(i);
@@ -831,6 +839,7 @@ int main(int argc, char** argv) {
       vector<Vec4i> hierachy;
       
       // cout << "Finding contours for filtered blobs..." << endl;
+      
       findContours(bigMatRes, contours, hierachy, CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE);
       if(hierachy.size() > 0) {
         // int numObj = hierachy.size();
@@ -839,35 +848,9 @@ int main(int argc, char** argv) {
           double area = moment.m00;
           if(area > MIN_OBJ_AREA && area < MAX_OBJ_AREA) {
             Point centre = currentBlob.getCenter();
+            colouredBlobs.push_back(centre);
             // Draw a circle on the filtered blob. 
             circle(origFrame, centre, 30, Scalar(0, 0, 255));
-            // cout << "Coloured count is " << colouredCount << endl;
-            if(colouredCount && !prevTracks.empty()) { 
-              // cout << "Already seen something coloured... calculating distances" << endl;
-              // We've already seen a coloured object... which one is the iRat?
-              // See how far the current blob is from the previous iRat's location.
-              // cout << "Size of coloured " << coloured.size() << endl;
-              Point diff = coloured[colouredCount-1] - prevTracks[0].centroid;
-              double distSq = diff.ddot(diff); 
-              if(distSq < minDist) {
-                minDist = distSq;
-                // This one is closer to previous location, update current location of iRat.
-                nowTrack[0].centroid = centre;
-              }
-
-            } else { // haven't seen anything colossred yet
-              // This is our guess for where iRat is
-              // cout << "Seeing something coloured for first time. It's the iRat." << endl;
-              colouredCount++;
-              nowTrack[0].centroid = centre; 
-              nowTrack[0].boundingRect = enlarged;
-              coloured.push_back(centre);
-              // Calculate (squared) distance from previous known location of iRat
-              if(!prevTracks.empty()) {
-                Point diff = centre - prevTracks[0].centroid;
-                minDist = diff.ddot(diff);
-              }
-            }
           }
         }
       }
@@ -877,16 +860,45 @@ int main(int argc, char** argv) {
           2, 8, 0);
     }
     
+    // old dumb way for comparison; find closest thing to previous 
+    if(!colouredBlobs.empty() && !prevTracks.empty()) {
+      findClosest(colouredBlobs, prevTracks[0].centroid);
+      debugMsg("Did dumb way calculation");
+    } else if(!colouredBlobs.empty()) {
+      // Rather dangerously choose one of the coloured blobs. First one sounds good. 
+      nowTrack[0].centroid = colouredBlobs[0];
+      debugMsg("Guessed Green's location");
+    } else {
+      // Oh gosh, nothing green in the scene?!!
+      // Then we simply do not update nowTrack. 
+      debugMsg("Didn't see anything of the right colour");
+    } 
+
     if(iRatKalmanInit) {
-      Point kfPred = kalmanRobotPredict(iRatKF, nowTrack[0].centroid);
-      iRatKalmanEstim.push_back(kfPred);
+      Point kfPred;
+      /**
+       * Update the iRat's Kalman filter. if no objects of correct
+       * colour have been spotted, do not update; keep old guess.
+       */
+      if(!colouredBlobs.empty()) {
+        kfPred = kalmanRatPredict(iRatKF, colouredBlobs);
+        iRatKalmanEstim.push_back(kfPred);
+        circle(origFrame, kfPred, 5, green, 2);  
+      } else {
+        // DO not update; draw old circle
+        kfPred = iRatKalmanEstim[iRatKalmanEstim.size()-1];
+      }
+      
+      colouredBlobs.clear();
+      
       // Draw the Kalman predictions 
       for (int i = 0; i < iRatKalmanEstim.size()-1; i++) {
         line(origFrame, iRatKalmanEstim[i], iRatKalmanEstim[i+1], 
             green, 1);
       } 
       // Draw Kalman's predicted point.
-      circle(origFrame, kfPred, 5, green, 2);   
+      circle(origFrame, kfPred, 5, green, 2);
+      debugMsg("Found next location of iRat!");
     } else {
       init_kalman(&iRatKF, &nowTrack[0].centroid);
       iRatKalmanInit = true;
@@ -897,8 +909,9 @@ int main(int argc, char** argv) {
     // Remove position of iRat from list we pass to kalman filter
     // so that it does not confuse the iRat and the rat.
     // @pre - the iRat's position has been finalised. 
+    // Maybe NO LONGER REQUIRED - HIGHLY UNLIKELY CENTROID 
     removePoint(centroids, nowTrack[0].centroid);
-
+   
     // Initialise Kalman Filter when the rat is identified with mouse click.
     if(!kalmanInitialised && mouseClicked) {
       init_kalman(&KF, &mouseClickRats[0]);
@@ -933,6 +946,7 @@ int main(int argc, char** argv) {
     // Update positions of rats.    
     if(!prevTracks.empty() && !prevRatTracks.empty()) {
       updatePositions(blobs);
+      debugMsg("Updated rat positions the old way");
     }
     
     // Override deduced position of rats with manual input if there is any.
@@ -945,6 +959,7 @@ int main(int argc, char** argv) {
     // Draw iRat position
     for(int i = 0; i < numiRats; i++) {
       putText(origFrame, "iRat", nowTrack[i].centroid, FONT_HERSHEY_SIMPLEX, 0.5, green, 2);
+      debugMsg("Labelled iRat's position, as calculated by old code");
     }
 
     // Label position of rats 
@@ -953,15 +968,15 @@ int main(int argc, char** argv) {
       ss << "Rat " << i;
       putText(origFrame, ss.str(), nowRatTrack[i].centroid, FONT, 0.5, blue, 2);
       // putText(origFrame, "clicked here", mouseClickRats[i], FONT, 0.5, black, 2);
+      debugMsg("Labelled rat positions");
     }
 
-    // Store the current track information in history
-    iRatHistory[histCount] = nowTrack;
     // Keep history all the way from beginning of program to now. 
     // NB this is what the *nearest-blob method* detected. It is here for 
     // comparison with the KF predictions.
     if(kalmanInitialised) {
       ratMotionHist.push_back(nowRatTrack[0].centroid);
+      debugMsg("Pushed to history");
     }
 
     // Work out which way the iRat should turn 
@@ -972,9 +987,16 @@ int main(int argc, char** argv) {
         int histSize = iRatKalmanEstim.size();
         Point oldPoint = histSize > maxHistCount ? 
                         iRatKalmanEstim[histSize-maxHistCount] : iRatKalmanEstim[0];
+
         Point heading = iRatKalmanEstim[histSize-1] - oldPoint;
-				vrot = getDir(nowTrack[0].centroid, heading, kalmanEstim[kalmanEstim.size()-1], 0.5, origFrame);
+        // iRat location, heading, rat location, magnitude, frame to draw vis on. 
+				vrot = getDir(iRatKalmanEstim[histSize-1], heading, kalmanEstim[kalmanEstim.size()-1], 0.5, origFrame);
       } else {
+        debugMsg("yay beans");
+        Point test = nowTrack[0].centroid;
+        debugMsg("nowTrack is OK");
+        Point test2 = nowRatTrack[0].centroid;
+        debugMsg("nowRatTrack is OK");
         // Use the old dumb code to find position of rat.  
       	vrot = getDir(nowTrack[0].centroid, nowTrack[0].centroid - prevTracks[0].centroid, 
                            nowRatTrack[0].centroid, 0.5, origFrame);  
@@ -983,7 +1005,10 @@ int main(int argc, char** argv) {
       ss << vrot;
       putText(origFrame, ss.str(), Point(30, 30), FONT, 0.5, blue, 2);    
       line(origFrame, prevTracks[0].centroid, nowTrack[0].centroid, green);
+      debugMsg("Worked out which way to turn");
     }
+
+    debugMsg("Hello world");
 
     //imshow("Filtered frame", filteredFrame);
 		//imshow("Processed", frame);
@@ -999,6 +1024,7 @@ int main(int argc, char** argv) {
     frame.copyTo(prevFrame);
     colouredCount = 0;
     mouseClicked = false;
+    debugMsg("Updated stuff");
 
 		/**** Issue velocity commands ****/
     cmdvel_msg.header.stamp = ros::Time::now();
