@@ -51,7 +51,7 @@
 // the maximum distance an two objects can be apart between frames for them
 // to be identified as the same object.
 //#define DIST_THRESH (640/4)*(640/4)
-#define DIST_THRESH 640*640
+#define DIST_THRESH ((640*640)/2)
 // codes for keyboard presses 
 #define keyP 1048688
 #define keyEsc 1048603
@@ -73,7 +73,7 @@ int WC = 40; // amount to increase width by
 int WH = 30; // amount to increase height by
 
 // Misc
-int DEBUG = 1;
+int DEBUG = 0;
 
 using namespace cv;
 using namespace std;
@@ -1023,7 +1023,6 @@ int main(int argc, char** argv) {
         // Get heading direction of iRat by using the predicted point from 5 frames ago, 
         // or the oldest frame you can get. 
         int histSize = iRatKalmanEstim.size();
-        cout << "histSize is " << histSize << endl;
         Point oldPoint = histSize > maxHistCount ? 
                         iRatKalmanEstim[histSize-maxHistCount] : iRatKalmanEstim[0];
 
