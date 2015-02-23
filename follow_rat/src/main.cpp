@@ -130,6 +130,8 @@ int maxHistCount = 5;
 bool rangersDecide = false;
 // The rotational velocity to be issued to the iRat 
 double vrot; 
+// The translation velocity to be issued to the iRat
+double vtrans;
 
 // Previous frame's tracks for rats 
 vector<Track> prevRatTracks;
@@ -141,6 +143,9 @@ vector<Point> mouseClickRats;
 bool mouseClicked = false;
 // The indices for the ranger values
 enum Wall {RIGHT = 0, CENTRE = 1, LEFT = 2};
+#define MAX_VTRANS 0.1
+// Issues same vrot for CONSEC frames before changing.
+#define CONSEC 5
 
 /** 
  * Optical flow related 
@@ -176,11 +181,15 @@ void rangersCallback(irat_msgs::IRatRangersConstPtr rangers) {
   // Check if we are heading straight into something.
   // Use 10cm for now  
   rangersDecide = true;
-  if(rangers->rangers[CENTRE].range < 0.1 || rangers->rangers[RIGHT].range < 0.05) {
+  if(rangers->rangers[CENTRE].range < 0.2 || rangers->rangers[RIGHT].range < 0.05) {
     // Arbitrarily turn left.
     vrot = 0.5;
+		vtrans = 0;
+		cout << "Too close! Turning left!" << endl;
   } else if(rangers->rangers[LEFT].range < 0.05) {
     vrot = -0.5;
+		vtrans = 0;
+		cout << "Too close! Turning right!" << endl;
   } else { // let the tracking program decide the velocity.
     rangersDecide = false;
   }
@@ -595,6 +604,9 @@ int main(int argc, char** argv) {
   // message to publish
   irat_msgs::IRatVelocity cmdvel_msg;// instantiate once only because of header squence number
   pub_cmdvel = node.advertise<irat_msgs::IRatVelocity>(iRatVelTopic, 1);
+	// number of times we've consecutively published this command
+	int pubCount = 0;
+	double oldVrot;
 	
   iRatHistory.resize(maxHistCount);
 	cout << "iRatHistorySize: " << iRatHistory.size() << endl;
@@ -680,7 +692,7 @@ int main(int argc, char** argv) {
 	}
 
   // Optional command - write video to file. 
-  if(argc == 5) {
+  if(argc >= 5) {
     int frameWidth = cap.get(CV_CAP_PROP_FRAME_WIDTH);
     int frameHeight = cap.get(CV_CAP_PROP_FRAME_HEIGHT);
     writer.open(argv[4], CV_FOURCC('M', 'J', 'P', 'G'), FRAMERATE, 
@@ -907,9 +919,14 @@ int main(int argc, char** argv) {
 
     // Work out which way the iRat should turn 
     if(!prevTracks.empty() && !rangersDecide) {
-      vrot = getDir(nowTrack[0].centroid, nowTrack[0].centroid - prevTracks[0].centroid, 
+			if(kalmanInitialised) {
+				vrot = getDir(nowTrack[0].centroid, nowTrack[0].centroid - prevTracks[0].centroid, kalmanEstim[kalmanEstim.size()-1], 0.5);
+      } else {
+
+      	vrot = getDir(nowTrack[0].centroid, nowTrack[0].centroid - prevTracks[0].centroid, 
                            nowRatTrack[0].centroid, 0.5);  
-      stringstream ss;
+			}
+			stringstream ss;
       ss << vrot;
       putText(origFrame, ss.str(), Point(30, 30), FONT, 0.5, blue, 2);    
       line(origFrame, prevTracks[0].centroid, nowTrack[0].centroid, green);
@@ -932,23 +949,32 @@ int main(int argc, char** argv) {
 
 		/**** Issue velocity commands ****/
     cmdvel_msg.header.stamp = ros::Time::now();
-    // keep moving forward
-    cmdvel_msg.magnitude = 0.05;
-    cmdvel_msg.angle = vrot;
-    pub_cmdvel.publish(cmdvel_msg);
+    // keep moving forward unless obstacle
+    cmdvel_msg.magnitude = rangersDecide? vtrans : MAX_VTRANS;
+		// Continue to publish the same rotational velocity command
+		// for CONSEC consecutive frames unless in obstacle avoidance mode.
+		if(pubCount < CONSEC && !rangersDecide) {
+    	cmdvel_msg.angle = oldVrot;
+    } else { // update to new vrot, reset pubCount 
+			cmdvel_msg.angle = vrot;
+			oldVrot = vrot;
+			pubCount = 0;
+		}
+		pubCount++;
+		pub_cmdvel.publish(cmdvel_msg);
     cmdvel_msg.header.seq++;
 
     int keyPressed = waitKey(playSpeed);
     switch(keyPressed) {
-      case keyEsc: // Esc key - quit program
+      case 27: // Esc key - quit program
         return 0;
-      case keyP: // p - for pause 
+      case 'p': // p - for pause 
         paused = !paused;
         if(paused) {
           cout << "Program paused." << endl;
           while(paused) {
             switch(waitKey(0)) {
-              case keyP:
+              case 'p':
                 paused = false;
                 break;
             }
