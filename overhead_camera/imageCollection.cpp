@@ -52,6 +52,7 @@ int main(int argc, char** argv) {
 			// terminate program on key press 
 		//	break;
 		//}
+		waitKey(10);
 	}
 
 	return 0;
