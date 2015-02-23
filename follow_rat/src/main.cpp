@@ -209,16 +209,11 @@ void rangersCallback(irat_msgs::IRatRangersConstPtr rangers) {
  *                      magnitude multiplier. Oops.
  * @return             the required rotational velocity of the iRat.
  */
-double getDir(Point iRatLoc, Point iRatHeading, Point ratLoc, double mag) {
+double getDir(Point iRatLoc, Point iRatHeading, Point ratLoc, double mag, Mat& img) {
   Point diff = ratLoc - iRatLoc;
 	// work out iRat's heading direction by averaging its last histCount
 	// directions. 
-	Point sum;
 	/*
-	for(int i = 1; i < iRatHistory.size(); i++) {
-		sum + iRatHistory[i] - 
-	}
-	*/
 	if(histCount == maxHistCount-1) {
 		iRatHeading = iRatLoc - iRatHistory[maxHistCount-1][0].centroid;
 	} 
@@ -226,12 +221,20 @@ double getDir(Point iRatLoc, Point iRatHeading, Point ratLoc, double mag) {
   if(histCount == maxHistCount) {
     histCount = 0;
   }
+  */
+
   Point change = diff - iRatHeading;
   double turn = iRatHeading.y*change.x < 0 ? -1 : 1;
   // Adjust turning velocity depending on how far to the left/right the rat is
   // of the iRat.
   //double vrot = mag*turn*(change.x/50) < mag ? mag*turn*(change.x/50) : mag;
-	
+  
+  // Draw stuff	
+  // Scalar blue = Scalar(255, 0, 0);
+  // Draw the vector from iRat to rat
+  // line(img, ratLoc, iRatLoc, 3);
+  // Draw heading direction 
+
   return turn*mag;
 }
 
@@ -647,6 +650,13 @@ int main(int argc, char** argv) {
   vector<Point> kalmanEstim;
   bool kalmanInitialised = false;
 
+  // Kalman filter for keeping track of iRat's position 
+  // Being lazy. Probably better to put in a vector. 
+  KalmanFilter iRatKF(4, 2, 0);
+  Mat_<float> iRatMeas(2, 1);
+  vector<Point> iRatKalmanEstim;
+  bool iRatKalmanInit = false;
+
   if(argc >= 4) {
 
     if(sscanf(argv[1], "%d", &deviceNo)) {
@@ -846,6 +856,22 @@ int main(int argc, char** argv) {
           2, 8, 0);
     }
     
+    if(iRatKalmanInit) {
+      Point kfPred = kalmanRatPredict(iRatKF, centroids);
+      iRatKalmanEstim.push_back(kfPred);
+      // Draw the Kalman predictions 
+      for (int i = 0; i < iRatKalmanEstim.size()-1; i++) {
+        line(origFrame, iRatKalmanEstim[i], iRatKalmanEstim[i+1], 
+            green, 1);
+      } 
+      // Draw Kalman's predicted point.
+      circle(origFrame, kfPred, 5, green, 2);   
+    } else {
+      init_kalman(&iRatKF, &nowTrack[0].centroid);
+      kalmanInitialised = true;
+      cout << "Kalman filter initialised for iRat" << endl;
+
+    }
 
     // Remove position of iRat from list we pass to kalman filter
     // so that it does not confuse the iRat and the rat.
@@ -919,12 +945,18 @@ int main(int argc, char** argv) {
 
     // Work out which way the iRat should turn 
     if(!prevTracks.empty() && !rangersDecide) {
-			if(kalmanInitialised) {
-				vrot = getDir(nowTrack[0].centroid, nowTrack[0].centroid - prevTracks[0].centroid, kalmanEstim[kalmanEstim.size()-1], 0.5);
+			if(kalmanInitialised && iRatKalmanInit) {
+        // Get heading direction of iRat by using the predicted point from 5 frames ago, 
+        // or the oldest frame you can get. 
+        int histSize = iRatKalmanEstim.size();
+        Point oldPoint = histSize > maxHistCount ? 
+                        iRatKalmanEstim[histSize-maxHistCount] : iRatKalmanEstim[histSize-1];
+        Point heading = iRatKalmanEstim[histSize-1] - oldPoint;
+				vrot = getDir(nowTrack[0].centroid, heading, kalmanEstim[kalmanEstim.size()-1], 0.5, origFrame);
       } else {
-
+        // Use the old dumb code to find position of rat.  
       	vrot = getDir(nowTrack[0].centroid, nowTrack[0].centroid - prevTracks[0].centroid, 
-                           nowRatTrack[0].centroid, 0.5);  
+                           nowRatTrack[0].centroid, 0.5, origFrame);  
 			}
 			stringstream ss;
       ss << vrot;
