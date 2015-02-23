@@ -184,15 +184,15 @@ void rangersCallback(irat_msgs::IRatRangersConstPtr rangers) {
   // Check if we are heading straight into something.
   // Use 10cm for now  
   rangersDecide = true;
-  if(rangers->rangers[CENTRE].range < 0.2 || rangers->rangers[RIGHT].range < 0.05) {
-    // Arbitrarily turn left.
+  if(rangers->rangers[CENTRE].range < 0.1) {
+		// vrot = rng.uniform(0, 1) < 0.5	? 0.5 : -0.5;
+		vtrans = 0;
+	} else if (rangers->rangers[RIGHT].range < 0.05) {
     vrot = 0.5;
 		vtrans = 0;
-		cout << "Too close! Turning left!" << endl;
   } else if(rangers->rangers[LEFT].range < 0.05) {
     vrot = -0.5;
 		vtrans = 0;
-		cout << "Too close! Turning right!" << endl;
   } else { // let the tracking program decide the velocity.
     rangersDecide = false;
   }
