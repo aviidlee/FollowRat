@@ -130,6 +130,8 @@ int maxHistCount = 5;
 bool rangersDecide = false;
 // The rotational velocity to be issued to the iRat 
 double vrot; 
+// The translation velocity to be issued to the iRat
+double vtrans;
 
 // Previous frame's tracks for rats 
 vector<Track> prevRatTracks;
@@ -182,9 +184,11 @@ void rangersCallback(irat_msgs::IRatRangersConstPtr rangers) {
   if(rangers->rangers[CENTRE].range < 0.2 || rangers->rangers[RIGHT].range < 0.05) {
     // Arbitrarily turn left.
     vrot = 0.5;
+		vtrans = 0;
 		cout << "Too close! Turning left!" << endl;
   } else if(rangers->rangers[LEFT].range < 0.05) {
     vrot = -0.5;
+		vtrans = 0;
 		cout << "Too close! Turning right!" << endl;
   } else { // let the tracking program decide the velocity.
     rangersDecide = false;
@@ -945,8 +949,8 @@ int main(int argc, char** argv) {
 
 		/**** Issue velocity commands ****/
     cmdvel_msg.header.stamp = ros::Time::now();
-    // keep moving forward
-    cmdvel_msg.magnitude = MAX_VTRANS;
+    // keep moving forward unless obstacle
+    cmdvel_msg.magnitude = rangersDecide? vtrans : MAX_VTRANS;
 		// Continue to publish the same rotational velocity command
 		// for CONSEC consecutive frames unless in obstacle avoidance mode.
 		if(pubCount < CONSEC && !rangersDecide) {
