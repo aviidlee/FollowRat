@@ -549,7 +549,11 @@ Point findClosest(const vector<Point>& points, const Point& point) {
 Point kalmanRatPredict(KalmanFilter& kf, const vector<Point>& possibleLocs) {
   Mat prediction = kf.predict();
   Point predictedPt(prediction.at<float>(0), prediction.at<float>(1));
-  Point ratLoc = findClosest(possibleLocs, predictedPt);
+  // If the mouse button has not been pressed (to identify the rat manually)
+  // then guess that the closest moving thing is the rat; otherwise use the 
+  // mouse click. 
+  Point ratLoc = mouseClicked ? mouseClickRats[0] : findClosest(possibleLocs, predictedPt);
+
   Mat_<float> meas(2, 1);
   meas.setTo(Scalar(0));
   meas(0) = ratLoc.x;
@@ -557,6 +561,22 @@ Point kalmanRatPredict(KalmanFilter& kf, const vector<Point>& possibleLocs) {
   Mat estimated = kf.correct(meas); 
   Point statePt(estimated.at<float>(0), estimated.at<float>(1));
   return statePt;
+}
+
+/**
+ * Removes the Point exclude from the vector points 
+ * 
+ * @param points  [description]
+ * @param exclude [description]
+ */
+void removePoint(vector<Point>& points, const Point& exclude) {
+  vector<Point>::iterator iter = find(points.begin(), points.end(), exclude);
+  if(iter != points.end()) {
+    points.erase(iter);
+    cout << "Erased point" << endl;
+  } 
+
+  return;
 }
 
 int main(int argc, char** argv) {
@@ -668,12 +688,13 @@ int main(int argc, char** argv) {
         Size(frameWidth, frameHeight));
   }
   
-  int playSpeed = 1;
+  int playSpeed = 10;
   if(argc == 6) {
-    if(!sscanf(argv[2], "%d", &playSpeed)) {
+    if(!sscanf(argv[5], "%d", &playSpeed)) {
       cout << "Bad playback speed" << endl;
       return -1;
     } 
+    cout << "Pausing " << playSpeed << "ms each frame." << endl;
   } 
 
   cout << "Commencing blob detection..." << endl;
@@ -770,7 +791,7 @@ int main(int argc, char** argv) {
       // cout << "Finding contours for filtered blobs..." << endl;
       findContours(bigMatRes, contours, hierachy, CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE);
       if(hierachy.size() > 0) {
-        int numObj = hierachy.size();
+        // int numObj = hierachy.size();
         for(int j = 0; j >= 0; j = hierachy[j][0]) {
           Moments moment = moments((Mat) contours[j]);
           double area = moment.m00;
@@ -814,6 +835,19 @@ int main(int argc, char** argv) {
           2, 8, 0);
     }
     
+
+    // Remove position of iRat from list we pass to kalman filter
+    // so that it does not confuse the iRat and the rat.
+    // @pre - the iRat's position has been finalised. 
+    removePoint(centroids, nowTrack[0].centroid);
+
+    // Initialise Kalman Filter when the rat is identified with mouse click.
+    if(!kalmanInitialised && mouseClicked) {
+      init_kalman(&KF, &mouseClickRats[0]);
+      kalmanInitialised = true;
+      cout << "Kalman Filter has been initialised" << endl;
+    }
+
     // Do Kalman filter stuff. 
     if(kalmanInitialised) {
       Point kfPred = kalmanRatPredict(KF, centroids);
@@ -826,9 +860,13 @@ int main(int argc, char** argv) {
       // Draw Kalman's predicted point.
       circle(origFrame, kfPred, 5, red, 2);
       // Draw the rat history 
-      for(int i = 0; i < ratMotionHist.size() - 1; i++) {
-        line(origFrame, ratMotionHist[i], ratMotionHist[i+1], blue);
+      // I dont' know why but I need the explicit check; somehow it magically 
+      // gets into the loop even when size = 0; it magically thinks 0 < -1.
+      if(!ratMotionHist.empty()) {
+        for(unsigned int j = 0; j < ratMotionHist.size()-1; j++) {
+          line(origFrame, ratMotionHist[j], ratMotionHist[j+1], blue);
       }  
+     }
     }
 
     // Do optical flow
@@ -844,16 +882,9 @@ int main(int argc, char** argv) {
       for(int i = 0; i < numRats; i++) {
         nowRatTrack[i].centroid = mouseClickRats[i];
       }
-    }
+    }  
 
-    // Initialise Kalman Filter when the rat is identified with mouse click.
-    if(mouseClicked && !kalmanInitialised) {
-      init_kalman(&KF, &mouseClickRats[0]);
-      kalmanInitialised = true;
-      cout << "Kalman Filter has been initialised" << endl;
-    }
-
-    // We have been through all the blobs. Finalise loc of iRat
+    // Draw iRat position
     for(int i = 0; i < numiRats; i++) {
       putText(origFrame, "iRat", nowTrack[i].centroid, FONT_HERSHEY_SIMPLEX, 0.5, green, 2);
     }
@@ -871,7 +902,9 @@ int main(int argc, char** argv) {
     // Keep history all the way from beginning of program to now. 
     // NB this is what the *nearest-blob method* detected. It is here for 
     // comparison with the KF predictions.
-    ratMotionHist.push_back(nowRatTrack[0].centroid);
+    if(kalmanInitialised) {
+      ratMotionHist.push_back(nowRatTrack[0].centroid);
+    }
 
     // Work out which way the iRat should turn 
     if(!prevTracks.empty() && !rangersDecide) {
@@ -906,7 +939,7 @@ int main(int argc, char** argv) {
     pub_cmdvel.publish(cmdvel_msg);
     cmdvel_msg.header.seq++;
 
-    int keyPressed = waitKey(1);
+    int keyPressed = waitKey(playSpeed);
     switch(keyPressed) {
       case keyEsc: // Esc key - quit program
         return 0;
