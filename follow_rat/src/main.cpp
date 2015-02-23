@@ -138,7 +138,7 @@ vector<Track> nowRatTrack;
 // Stores the mouse click positions; required for updating the rats' positions.
 vector<Point> mouseClickRats;
 // Whether or not the mouse has been clicked during this frame.
-bool mouseClicked;
+bool mouseClicked = false;
 // The indices for the ranger values
 enum Wall {RIGHT = 0, CENTRE = 1, LEFT = 2};
 
@@ -231,7 +231,6 @@ double getDir(Point iRatLoc, Point iRatHeading, Point ratLoc, double mag) {
  * rat 1 is, and right mouse button specifies where rat 2 is. 
  */
 void mouseCallback(int event, int x, int y, int flags, void* userdata) {
-  mouseClicked = true;
 
   // Click to specify position of rat 1
   if(event == EVENT_LBUTTONDOWN && numRats > 0) {
@@ -240,6 +239,7 @@ void mouseCallback(int event, int x, int y, int flags, void* userdata) {
                    << x << "," << y << endl;
     }
     mouseClickRats[0] = Point(x, y);
+    mouseClicked = true; 
   }
   
   // Click to specify position of rat 2
@@ -249,6 +249,11 @@ void mouseCallback(int event, int x, int y, int flags, void* userdata) {
                     << x << "," << y << endl;
     }
     mouseClickRats[1] = Point(x, y);
+    // It may look awful that we are doing mouseClicked = true twice but it 
+    // is necessary; if we put it as the first thing, it will set true on 
+    // ANY mouse movement, not just clicking, because this callback is called 
+    // on mouse MOVEMENTS of any kind and not just clicks.
+    mouseClicked = true; 
   }
 
 }
@@ -454,6 +459,7 @@ void init_kalman(KalmanFilter *KF, Point *init_pos) {
   //Set up kalman filter
   //KalmanFilter KF(6, 2, 0); 
   
+  /* 
   Mat_<float> state(6, 1);
   Mat processNoise(6, 1, CV_32F);
   
@@ -480,11 +486,11 @@ void init_kalman(KalmanFilter *KF, Point *init_pos) {
   setIdentity(KF->processNoiseCov, Scalar::all(1e-4));
   setIdentity(KF->measurementNoiseCov, Scalar::all(1e-1));
   setIdentity(KF->errorCovPost, Scalar::all(.1));
-  
+  */
   //-----------------------------------------------------------------------
   
   //KalmanFilter KF(4, 2, 0);
-  /*
+  
   KF->transitionMatrix = *(Mat_<float>(4, 4) << 
       1,0,1,0,   
       0,1,0,1,  
@@ -502,7 +508,7 @@ void init_kalman(KalmanFilter *KF, Point *init_pos) {
    setIdentity(KF->processNoiseCov, Scalar::all(1e-4));
    setIdentity(KF->measurementNoiseCov, Scalar::all(1e-1));
    setIdentity(KF->errorCovPost, Scalar::all(.1));
-   */
+   
 }
 
 /**
@@ -602,7 +608,7 @@ int main(int argc, char** argv) {
   Mat prevFrame;
 
   // Create Kalman filter and initialise
-  KalmanFilter KF(4, 2, 0); // 6 variables, 2 meaurements
+  KalmanFilter KF(4, 2, 0); // 4 variables, 2 meaurements
  
   // For storing measurements to feed back into KF. 
   Mat_<float> measurement(2,1); 
@@ -662,10 +668,18 @@ int main(int argc, char** argv) {
         Size(frameWidth, frameHeight));
   }
   
+  int playSpeed = 1;
+  if(argc == 6) {
+    if(!sscanf(argv[2], "%d", &playSpeed)) {
+      cout << "Bad playback speed" << endl;
+      return -1;
+    } 
+  } 
+
   cout << "Commencing blob detection..." << endl;
-	cvNamedWindow("Processed", 1);
+	//cvNamedWindow("Processed", 1);
   cvNamedWindow("Original frame");
-  cvNamedWindow("Filtered frame");
+  //cvNamedWindow("Filtered frame");
 
   createTrackbars();
   setMouseCallback("Original frame", mouseCallback, NULL);
@@ -811,6 +825,10 @@ int main(int argc, char** argv) {
       } 
       // Draw Kalman's predicted point.
       circle(origFrame, kfPred, 5, red, 2);
+      // Draw the rat history 
+      for(int i = 0; i < ratMotionHist.size() - 1; i++) {
+        line(origFrame, ratMotionHist[i], ratMotionHist[i+1], blue);
+      }  
     }
 
     // Do optical flow
@@ -832,6 +850,7 @@ int main(int argc, char** argv) {
     if(mouseClicked && !kalmanInitialised) {
       init_kalman(&KF, &mouseClickRats[0]);
       kalmanInitialised = true;
+      cout << "Kalman Filter has been initialised" << endl;
     }
 
     // We have been through all the blobs. Finalise loc of iRat
@@ -853,10 +872,6 @@ int main(int argc, char** argv) {
     // NB this is what the *nearest-blob method* detected. It is here for 
     // comparison with the KF predictions.
     ratMotionHist.push_back(nowRatTrack[0].centroid);
-    // Draw the rat history 
-    for(int i = 0; i < ratMotionHist.size() - 1; i++) {
-      line(origFrame, ratMotionHist[i], ratMotionHist[i+1], blue);
-    } 
 
     // Work out which way the iRat should turn 
     if(!prevTracks.empty() && !rangersDecide) {
@@ -868,8 +883,8 @@ int main(int argc, char** argv) {
       line(origFrame, prevTracks[0].centroid, nowTrack[0].centroid, green);
     }
 
-    imshow("Filtered frame", filteredFrame);
-		imshow("Processed", frame);
+    //imshow("Filtered frame", filteredFrame);
+		//imshow("Processed", frame);
     // imshow("Background", back);
     // imshow("Foreground", fore);
     // imshow("Blobs", blobFrame);
@@ -912,9 +927,6 @@ int main(int argc, char** argv) {
       default:
         cout << "Key pressed: " << keyPressed << endl;
 		}
-
-    
-
 	}
 
 	return 0;
