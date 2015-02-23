@@ -27,6 +27,7 @@ vector<Point> iRatHistory;
 const int maxHistCount = 5;
 Point change;
 Point iRatHeading;
+float angle;
 
 // Function definitions
 void callback(int, int, int, int, void *);
@@ -76,20 +77,26 @@ Mat update_display(Mat orig) {
 	int offset_y = 40;
 	Point test_pos(WINDOW_SIZE - offset_x, WINDOW_SIZE - offset_y);
 	putText(result, ss.str(), test_pos, FONT_HERSHEY_SCRIPT_SIMPLEX, 0.5,
-			Scalar::all(255), 3, 2);
+			Scalar::all(255), 2, 2);
 
 	// Display the final direction
 	stringstream nss;
 	nss << direction;
 	Point dir_pos(offset_x, offset_y);
 	putText(result, nss.str(), dir_pos, FONT_HERSHEY_SCRIPT_SIMPLEX, 0.5,
-			Scalar::all(255), 3, 2);
+			Scalar::all(255), 2, 2);
 	// Draw the change in green	
 	line(result, Point(x_pos, y_pos), Point(x_pos, y_pos) + change, 
 			Scalar(20, 230, 20), 3);
-	// Draw the iRats heading
+	// Draw the iRats heading in purple
 	line(result, Point(x_pos, y_pos), Point(x_pos, y_pos) + iRatHeading, 
 			Scalar(120, 30, 170), 3);
+
+	// Draw angle
+	stringstream ass;
+	ass << angle;
+	putText(result, ass.str(), Point(2*offset_x, offset_y), 
+			FONT_HERSHEY_SCRIPT_SIMPLEX, 0.5, Scalar::all(255), 2, 2);
 
 	return result;
 }
@@ -130,6 +137,20 @@ void calculate_direction(void) {
 	Point diff = ratLoc - iRatLoc;
 	Point sum;
 	
+	// calculate angle
+	float len1 = sqrt(iRatHeading.x * iRatHeading.x + 
+			iRatHeading.y * iRatHeading.y);
+	float len2 = sqrt(diff.x * diff.x + diff.y * diff.y);
+	float dot = iRatHeading.x * diff.x + iRatHeading.y * diff.y;
+	float a = dot / (len1 * len2);
+
+	if (a >= 1.0) {
+		angle = 0.0;
+	} else if (a <= -1.0) {
+		angle = 3.14;
+	} else {
+		angle = acos(a);
+	}
 	/*
 	if (histCount == maxHistCount-1) {
 		// This implementation will just store a vector of Points
