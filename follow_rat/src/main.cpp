@@ -642,6 +642,25 @@ void removePoint(vector<Point>& points, const Point& exclude) {
   return;
 }
 
+/**
+ * Calculate the angle between two points in radians
+ */
+float angleBetween(Point v1, Point v2) {
+	float len1 = sqrt(v1.x * v1.x + v1.y * v1.y);
+	float len2 = sqrt(v2.x * v2.x + v2.y * v2.y);
+
+	float dot = v1.x * v2.x + v1.y * v2.y;
+
+	float a = dot / (len1 * len2);
+
+	if (a >= 1.0)
+		return 0.0;
+	else if (a <= -1.0) {
+		return 3.14;
+	}
+	return acos(a);
+}
+
 void debugMsg(string msg) {
   if(DEBUG) {
     cout << "DEBUG: " << msg << endl;
@@ -1061,8 +1080,20 @@ int main(int argc, char** argv) {
 
 		/**** Issue velocity commands ****/
     cmdvel_msg.header.stamp = ros::Time::now();
+
+				vrot = getDir(iRatKalmanEstim[histSize-1], heading, kalmanEstim[kalmanEstim.size()-1], 0.5, origFrame);
+		// Limit speed forward based on angle to Rat
+		float speed = MAX_VTRANS;
+		// vector between = iratLocation - ratLocation
+		Point iratRatVec = iRatKalmanEstim[histSize-1] - 
+				kalmanEstim[kalmanDestim.size()-1]; 
+		
+		float angle = angleBetween(iratRatVec, heading);
+		speed = -MAX_VTRANS * ((angle / 3.14) - 1);
+
+
     // keep moving forward unless obstacle
-    cmdvel_msg.magnitude = rangersDecide? vtrans : MAX_VTRANS;
+    cmdvel_msg.magnitude = rangersDecide? vtrans : speed;
 		// Continue to publish the same rotational velocity command
 		// for CONSEC consecutive frames unless in obstacle avoidance mode.
 		if(pubCount < CONSEC && !rangersDecide) {
