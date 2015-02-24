@@ -153,24 +153,6 @@ enum Wall {RIGHT = 0, CENTRE = 1, LEFT = 2};
 // Issues same vrot for CONSEC frames before changing.
 #define CONSEC 5
 
-/** 
- * Optical flow related 
- */
-// Maximum number of features to track 
-#define MAX_FEATURES 500
-// Stopping condition for iterative algorithm optical flow 
-// Termination criteria are:
-//    CV_TERMCRIT_ITER: terminate after iterating twice the number of max_iter
-//    CV_TERMCRIT_EPS: terminate if accuracy falls below epsilon.
-TermCriteria termCrit(CV_TERMCRIT_ITER | CV_TERMCRIT_EPS, 20, 0.03);
-// Size of search window at each pyramid level for optical flow algorithm
-Size winSize(31, 31);
-// Vectors to pass into optical flow algorithm 
-vector<uchar> status;
-vector<float> err;
-vector<Point2f> oldFeatures;
-vector<Point2f> newFeatures;
-
 /***** Kalman *****/
 const int MINHESSIAN = 400;
 
@@ -438,58 +420,6 @@ Rect enlargeRect(Mat& origFrame, Rect& rect) {
     return enlarged;
 }
 
-void opticalFlow(Mat& greyFrame, Mat& prevFrame, Mat& displayFrame) {
-  // Check if we have a previous frame
-  if(!prevFrame.empty()) {
-    goodFeaturesToTrack(greyFrame, newFeatures, MAX_FEATURES, 0.01, 5, Mat(), 3, 
-                        0, 0.04);
-    if(newFeatures.empty()) {
-      cout << "Can't find any good features do detect!!!" << endl;
-    }
-  } else if(!oldFeatures.empty()) {
-    calcOpticalFlowPyrLK(prevFrame, greyFrame, oldFeatures, newFeatures, status, 
-                         err, winSize, 3, termCrit, 0, 0.001);
-
-    // Variables to store the differences in position of the tracked features
-    int xDiff, yDiff;
-    // The sum of the magnitudes of the vectors 
-    unsigned int totalDiff = 0;
-    // The sums of x and y components, signs retained. 
-    int xSum = 0;
-    int ySum = 0;
-    cout << "Doing optical flow..." << endl;
-    // Calculate how much the features have moved. 
-    for(vector<Point2f>::size_type i = 0; i < oldFeatures.size(); i++) {
-      xDiff = int(newFeatures[i].x - oldFeatures[i].x);
-      yDiff = int(newFeatures[i].y - oldFeatures[i].y);
-      totalDiff += (fabs(xDiff) + fabs(yDiff));
-      xSum += xDiff;
-      ySum += yDiff; 
-
-      cout << "Drawing optical flow stuf..." << endl;
-      // Draw circles around tracked features and lines to indicate flow.
-      if((newFeatures[i].x - oldFeatures[i].x) > 0) {
-        line(displayFrame, newFeatures[i], oldFeatures[i], 
-          Scalar(0, 0, 255), 1, 1, 0);
-
-        circle(displayFrame, newFeatures[i], 2, Scalar(255, 0, 0), 1, 1, 0);
-      } else {
-        line(displayFrame, newFeatures[i], oldFeatures[i], Scalar(0, 255, 0), 1, 1, 0);
-        circle(displayFrame, newFeatures[i], 2, Scalar(255, 0, 0), 1, 1, 0);
-      }
-
-    } 
-    // Get some new good features to track
-    goodFeaturesToTrack(greyFrame, newFeatures, MAX_FEATURES, 0.01, 10, Mat(), 3, 0, 0.04);  
-  }
-  swap(oldFeatures, newFeatures);
-  newFeatures.clear();
-  if(oldFeatures.empty()) {
-    cout << "what?! no old features???" << endl;
-  }
-  return;
-}
-
 /** initialise the kalman filter with the given point as the initial position.
  * Takes a pointer to a Kalman filter to fill in and a pointer to a Point
  * representing the initial position of the object to be tracked.
@@ -601,65 +531,6 @@ Point kalmanPredict(KalmanFilter& kf, const vector<Point>& possibleLocs, bool ov
 }
 
 /**
- * Takes a list of points which could represent a rat, and the Kalman
- * Filter which has been set up to predict that rat. It gets a prediction
- * of the rat's location from the Kalman filter, and then chooses the point
- * from the list which is closest to the predicted location. It updates the
- * Kalman filter with this chosen location. The 'corrected' prediction is 
- * retrieved from the filter and returned.  
- * 
- * @param  kf           [description]
- * @param  possibleLocs [description]
- * @return              [description]
- */
-Point kalmanRatPredict(KalmanFilter& kf, const vector<Point>& possibleLocs) {
-  Mat prediction = kf.predict();
-  Point predictedPt(prediction.at<float>(0), prediction.at<float>(1));
-  // If the mouse button has not been pressed (to identify the rat manually)
-  // then guess that the closest moving thing is the rat; otherwise use the 
-  // mouse click. 
-  Point ratLoc = mouseClicked ? mouseClickRats[0] : findClosest(possibleLocs, predictedPt);
-
-  Mat_<float> meas(2, 1);
-  meas.setTo(Scalar(0));
-  meas(0) = ratLoc.x;
-  meas(1) = ratLoc.y;
-  Mat estimated = kf.correct(meas); 
-  Point statePt(estimated.at<float>(0), estimated.at<float>(1));
-  return statePt;
-}
-
-
-
-/**
- * Get Kalman filter to predict location of iRat, then feeds in the location of the 
- * iRat as determined by colouring filtering to 'correct' the Kalman filter. 
- * 
- * @param  kf      [description]
- * @param  correct [description]
- * @return         [description]
- */
-Point kalmanRobotPredict(KalmanFilter& kf, const vector<Point>& possible) {
-  Mat prediction = kf.predict();
-  Point predictedPt(prediction.at<float>(0), prediction.at<float>(1));
-  Point correct = findClosest(possible, predictedPt);
-  // if the closest thing is still really far away, don't update; it's 
-  // probably the green bucket thing moving. 
-  Point statePt;
-  if(distSq(predictedPt, correct) < DIST_THRESH) {
-    Mat_<float> meas(2, 1);
-    meas.setTo(Scalar(0));
-    meas(0) = correct.x;
-    meas(1) = correct.y;
-    Mat estimated = kf.correct(meas); 
-    statePt = Point(estimated.at<float>(0), estimated.at<float>(1));
-  } else {
-    throw TooFar();
-  }
-  return statePt;
-}
-
-/**
  * Removes the Point exclude from the vector points 
  * 
  * @param points  [description]
@@ -718,6 +589,50 @@ void outputImg(const Mat& img, string name, ros::Time timestamp) {
   return;
 }
 
+/**
+ * Return true IFF the BOUNDING BOX of the 
+ * circle at centre centre of radius radius intersects
+ * with rect. 
+ * 
+ * @param  centre [description]
+ * @param  radius [description]
+ * @param  rect   [description]
+ * @return        [description]
+ */
+bool intersects(const Point& centre, int radius, const Rect& rect) {
+  Point tl = Point(centre.x - radius, centre.y - radius);
+  int x = tl.x >= 0 ? tl.x : 0;
+  int y = tl.y >= 0 ? tl.y : 0;
+  Rect bounding(x, y, 2*radius, 2*radius);
+  Rect intersect = bounding & rect;
+  return intersect.width > 0 || intersect.height > 0;
+}
+
+/**
+ * Find and return the largest circle in circles, 
+ * where the returned circle is specified by the x, y 
+ * coordinates of the centre, then radius. 
+ * 
+ */
+vector<int> findMax(const vector<Vec3f> circles) {
+  int max = 0;
+  int radius, x, y; 
+  for(int i = 0; i < circles.size(); i++) {
+    radius = cvRound(circles[i][2]);
+    if(max < radius) {
+      max = radius;
+      x = cvRound(circles[i][0]);
+      y = cvRound(circles[i][1]);
+    }
+  }
+
+  vector<int> circle;
+  circle.push_back(x);
+  circle.push_back(y);
+  circle.push_back(max);
+  return circle;
+}
+
 int main(int argc, char** argv) {
   // topic root, e.g., irat_red; can be specified from commandline with _topic:/irat_[colour]
   string topic;
@@ -761,13 +676,9 @@ int main(int argc, char** argv) {
   // colours...
   Scalar green = Scalar(0, 255, 0);
   Scalar blue = Scalar(255, 0, 0);
-  Scalar black = Scalar(0, 0, 0);
   Scalar red = Scalar(0, 0, 255);
   Scalar colour = Scalar(rng.uniform(0, 255), rng.uniform(0, 255),
       rng.uniform(0, 255));
-
-  // Store last frame for optical flow. 
-  Mat prevFrame;
 
   // Create Kalman filter and initialise
   KalmanFilter KF(4, 2, 0); // 4 variables, 2 meaurements
@@ -878,6 +789,12 @@ int main(int argc, char** argv) {
     }
     outputImg(origFrame, "original", timestamp);
     preprocess(origFrame, frame);
+    // Find Hough transform - detect the circle of the arena. 
+    vector<Vec3f> circles;
+    HoughCircles(frame, circles, CV_HOUGH_GRADIENT, 1, frame.rows/8, 
+      200, 100, 0, 0);
+    // Find the largest circle and assume that it is the arena. 
+    vector<int> arena = findMax(circles);
   
     /* Do background subtraction */
     bg.operator () (frame, fore);
@@ -894,9 +811,6 @@ int main(int argc, char** argv) {
     int numBlobs = blobs.GetNumBlobs();
     outputImg(fore, "foreground", timestamp);
 
-    // Get bounding boxes for blobs
-    // Don't need them stored to draw them, but we will need them later.
-    vector<Rect> boundingBoxes;
     // Centroids of blobs 
     vector<Point> centroids;
 
@@ -907,9 +821,13 @@ int main(int argc, char** argv) {
       centroids.push_back(currentBlob.getCenter());
       currentBlob.FillBlob(frame, Scalar(0, 255, 0));
       Rect currentRect = currentBlob.GetBoundingBox();
-      boundingBoxes.push_back(currentBlob.GetBoundingBox());
+      // If this rect is not intersecting the arena, then don't bother processing it.
+      if(!intersects(Point(arena[0], arena[1]), arena[2], currentRect)) {
+        continue;
+      } 
+
       // Draw the unmodified bounding box onto the processed images frame.
-      rectangle(frame, boundingBoxes[i].tl(), boundingBoxes[i].br(),
+      rectangle(frame, currentRect.tl(), currentRect.br(),
           colour, 2, 8, 0);
 
       /* 
@@ -1073,9 +991,6 @@ int main(int argc, char** argv) {
 
     outputImg(origFrame, "kalman", timestamp);
     
-    // Do optical flow
-    // opticalFlow(frame, prevFrame, origFrame); 
-    
     // Update positions of rats.    
     if(!prevTracks.empty() && !prevRatTracks.empty()) {
       updatePositions(blobs);
@@ -1102,7 +1017,6 @@ int main(int argc, char** argv) {
       if(!kalmanEstim.empty()) {
         putText(origFrame, ss.str(), kalmanEstim[kalmanEstim.size()-1], FONT, 0.5, red, 2);
       }
-      // putText(origFrame, "clicked here", mouseClickRats[i], FONT, 0.5, black, 2);
       debugMsg("Labelled rat positions");
     }
 
@@ -1155,7 +1069,6 @@ int main(int argc, char** argv) {
     // Update track 
     prevTracks = nowTrack;
     prevRatTracks = nowRatTrack;
-    frame.copyTo(prevFrame);
     mouseClicked = false;
     debugMsg("Updated stuff");
 
