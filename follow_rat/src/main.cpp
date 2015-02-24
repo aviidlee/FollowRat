@@ -55,6 +55,8 @@
 // codes for keyboard presses 
 #define keyP 1048688
 #define keyEsc 1048603
+// What people eat 
+#define PI 3.14
 
 // number of previous locations of blobs to keep track of.
 #define MAX_AGE
@@ -147,6 +149,7 @@ bool mouseClicked = false;
 // The indices for the ranger values
 enum Wall {RIGHT = 0, CENTRE = 1, LEFT = 2};
 #define MAX_VTRANS 0.1
+#define MAX_VROT 0.5
 // Issues same vrot for CONSEC frames before changing.
 #define CONSEC 5
 
@@ -238,7 +241,7 @@ double getDir(Point iRatLoc, Point iRatHeading, Point ratLoc, double mag, Mat& i
   // line(img, ratLoc, iRatLoc, 3);
   // Draw heading direction 
 
-  return turn*mag;
+  return turn;
 }
 
 /**
@@ -672,6 +675,25 @@ void removePoint(vector<Point>& points, const Point& exclude) {
 }
 
 /**
+ * Calculate the angle between two points in radians
+ */
+float angleBetween(Point v1, Point v2) {
+	float len1 = sqrt(v1.x * v1.x + v1.y * v1.y);
+	float len2 = sqrt(v2.x * v2.x + v2.y * v2.y);
+
+	float dot = v1.x * v2.x + v1.y * v2.y;
+
+	float a = dot / (len1 * len2);
+
+	if (a >= 1.0)
+		return 0.0;
+	else if (a <= -1.0) {
+		return PI;
+	}
+	return acos(a);
+}
+
+/**
  * Print msg if the global DEBUG flag is on. 
  * 
  * @param msg the debug message to print. 
@@ -990,12 +1012,13 @@ int main(int argc, char** argv) {
       // Draw Kalman's predicted point.
       circle(origFrame, kfPred, 5, green, 2);
       debugMsg("Found next location of iRat!");
-    } else {
+    } else if(!colouredBlobs.empty()) {
       init_kalman(&iRatKF, &nowTrack[0].centroid);
       iRatKalmanInit = true;
       cout << "Kalman filter initialised for iRat" << endl;
-
-    }
+    } else {
+			debugMsg("No coloured object detected, unable to initialise iRat kf");
+		}
 
     // Remove position of iRat from list we pass to kalman filter
     // so that it does not confuse the iRat and the rat.
@@ -1026,6 +1049,7 @@ int main(int argc, char** argv) {
         if(!kalmanEstim.empty()) {
             kfPred = kalmanEstim[kalmanEstim.size()-1];
         }
+				debugMsg("Empty kalmanEstim. Sad face.");
       }
       
       // Draw the Kalman predictions 
@@ -1090,10 +1114,11 @@ int main(int argc, char** argv) {
       debugMsg("Pushed to history");
     }
 
+		Point heading; // the iRat's heading 
     // Work out which way the iRat should turn 
     if(!prevTracks.empty() && !rangersDecide) {
       debugMsg("Yoyoyo");
-			if(kalmanInitialised && iRatKalmanInit) {
+			if(!kalmanEstim.empty() && !iRatKalmanEstim.empty()) {
         debugMsg("Adventure time!");
         // Get heading direction of iRat by using the predicted point from 5 frames ago, 
         // or the oldest frame you can get. 
@@ -1101,10 +1126,10 @@ int main(int argc, char** argv) {
         Point oldPoint = histSize > maxHistCount ? 
                         iRatKalmanEstim[histSize-maxHistCount] : iRatKalmanEstim[0];
 
-        Point heading = iRatKalmanEstim[histSize-1] - oldPoint;
-        // iRat location, heading, rat location, magnitude, frame to draw vis on. 
+        heading = iRatKalmanEstim[histSize-1] - oldPoint;
+			// iRat location, heading, rat location, magnitude, frame to draw vis on. 
 				vrot = getDir(iRatKalmanEstim[histSize-1], heading, kalmanEstim[kalmanEstim.size()-1], 0.5, origFrame);
-      } else {
+			} else {
         debugMsg("yay beans");
         // Use the old dumb code to find position of rat.  
       	vrot = getDir(nowTrack[0].centroid, nowTrack[0].centroid - prevTracks[0].centroid, 
@@ -1136,8 +1161,27 @@ int main(int argc, char** argv) {
 
 		/**** Issue velocity commands ****/
     cmdvel_msg.header.stamp = ros::Time::now();
+
+		if(!rangersDecide) {
+			// vector between = iratLocation - ratLocation
+			if(!iRatKalmanEstim.empty() && !kalmanEstim.empty()) {
+				Point iratRatVec = iRatKalmanEstim[iRatKalmanEstim.size()-1] -
+					kalmanEstim[kalmanEstim.size()-1]; 
+				float angle = angleBetween(iratRatVec, heading);
+				//speed = -MAX_VTRANS * ((angle / PI) - 1);
+				//speed = (MAX_VTRANS/ PI) * sqrt((PI*PI) - (angle*angle));
+				// double vrotMag = MAX_VROT * sqrt(1-(angle/PI)*(angle/PI));
+				//double vrotMag = MAX_VROT*sqrt(angle/PI);
+				//vrot = vrotMag*vrot;
+				vrot = vrot*MAX_VROT;
+			} else {
+				vrot = vrot*MAX_VROT;
+			}
+		}
+		
+		cout << "vrot: " << vrot << endl;
     // keep moving forward unless obstacle
-    cmdvel_msg.magnitude = rangersDecide? vtrans : MAX_VTRANS;
+    cmdvel_msg.magnitude = rangersDecide ? vtrans : MAX_VTRANS;
 		// Continue to publish the same rotational velocity command
 		// for CONSEC consecutive frames unless in obstacle avoidance mode.
 		if(pubCount < CONSEC && !rangersDecide) {
