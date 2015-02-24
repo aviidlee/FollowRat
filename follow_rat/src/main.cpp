@@ -55,6 +55,8 @@
 // codes for keyboard presses 
 #define keyP 1048688
 #define keyEsc 1048603
+// What people eat 
+#define PI 3.14
 
 // number of previous locations of blobs to keep track of.
 #define MAX_AGE
@@ -73,7 +75,7 @@ int WC = 40; // amount to increase width by
 int WH = 30; // amount to increase height by
 
 // Misc
-int DEBUG = 0;
+int DEBUG = 1;
 
 using namespace cv;
 using namespace std;
@@ -146,7 +148,7 @@ vector<Point> mouseClickRats;
 bool mouseClicked = false;
 // The indices for the ranger values
 enum Wall {RIGHT = 0, CENTRE = 1, LEFT = 2};
-#define MAX_VTRANS 0.1
+#define MAX_VTRANS 0.5
 // Issues same vrot for CONSEC frames before changing.
 #define CONSEC 5
 
@@ -685,7 +687,7 @@ float angleBetween(Point v1, Point v2) {
 	if (a >= 1.0)
 		return 0.0;
 	else if (a <= -1.0) {
-		return 3.14;
+		return PI;
 	}
 	return acos(a);
 }
@@ -988,12 +990,13 @@ int main(int argc, char** argv) {
       // Draw Kalman's predicted point.
       circle(origFrame, kfPred, 5, green, 2);
       debugMsg("Found next location of iRat!");
-    } else {
+    } else if(!colouredBlobs.empty()) {
       init_kalman(&iRatKF, &nowTrack[0].centroid);
       iRatKalmanInit = true;
       cout << "Kalman filter initialised for iRat" << endl;
-
-    }
+    } else {
+			debugMsg("No coloured object detected, unable to initialise iRat kf");
+		}
 
     // Remove position of iRat from list we pass to kalman filter
     // so that it does not confuse the iRat and the rat.
@@ -1024,6 +1027,7 @@ int main(int argc, char** argv) {
         if(!kalmanEstim.empty()) {
             kfPred = kalmanEstim[kalmanEstim.size()-1];
         }
+				debugMsg("Empty kalmanEstim. Sad face.");
       }
       
       // Draw the Kalman predictions 
@@ -1086,10 +1090,11 @@ int main(int argc, char** argv) {
       debugMsg("Pushed to history");
     }
 
+		Point heading; // the iRat's heading 
     // Work out which way the iRat should turn 
     if(!prevTracks.empty() && !rangersDecide) {
       debugMsg("Yoyoyo");
-			if(kalmanInitialised && iRatKalmanInit) {
+			if(!kalmanEstim.empty() && !iRatKalmanEstim.empty()) {
         debugMsg("Adventure time!");
         // Get heading direction of iRat by using the predicted point from 5 frames ago, 
         // or the oldest frame you can get. 
@@ -1097,10 +1102,10 @@ int main(int argc, char** argv) {
         Point oldPoint = histSize > maxHistCount ? 
                         iRatKalmanEstim[histSize-maxHistCount] : iRatKalmanEstim[0];
 
-        Point heading = iRatKalmanEstim[histSize-1] - oldPoint;
-        // iRat location, heading, rat location, magnitude, frame to draw vis on. 
+        heading = iRatKalmanEstim[histSize-1] - oldPoint;
+			// iRat location, heading, rat location, magnitude, frame to draw vis on. 
 				vrot = getDir(iRatKalmanEstim[histSize-1], heading, kalmanEstim[kalmanEstim.size()-1], 0.5, origFrame);
-      } else {
+			} else {
         debugMsg("yay beans");
         // Use the old dumb code to find position of rat.  
       	vrot = getDir(nowTrack[0].centroid, nowTrack[0].centroid - prevTracks[0].centroid, 
@@ -1133,16 +1138,18 @@ int main(int argc, char** argv) {
 		/**** Issue velocity commands ****/
     cmdvel_msg.header.stamp = ros::Time::now();
 
-				vrot = getDir(iRatKalmanEstim[histSize-1], heading, kalmanEstim[kalmanEstim.size()-1], 0.5, origFrame);
 		// Limit speed forward based on angle to Rat
 		float speed = MAX_VTRANS;
 		// vector between = iratLocation - ratLocation
-		Point iratRatVec = iRatKalmanEstim[histSize-1] - 
-				kalmanEstim[kalmanDestim.size()-1]; 
-		
-		float angle = angleBetween(iratRatVec, heading);
-		speed = -MAX_VTRANS * ((angle / 3.14) - 1);
-
+		if(!iRatKalmanEstim.empty() && !kalmanEstim.empty()) {
+			Point iratRatVec = iRatKalmanEstim[iRatKalmanEstim.size()-1] -
+					kalmanEstim[kalmanEstim.size()-1]; 
+			float angle = angleBetween(iratRatVec, heading);
+			//speed = -MAX_VTRANS * ((angle / PI) - 1);
+			//speed = (MAX_VTRANS/ PI) * sqrt((PI*PI) - (angle*angle));
+			speed = MAX_VTRANS * sqrt(1-(angle/PI)*(angle/PI));
+			cout << "speed: " << speed;
+		}
 
     // keep moving forward unless obstacle
     cmdvel_msg.magnitude = rangersDecide? vtrans : speed;
