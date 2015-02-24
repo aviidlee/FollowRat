@@ -691,7 +691,7 @@ void debugMsg(string msg) {
  */
 void outputImg(const Mat& img, string name, ros::Time timestamp) {
   stringstream ss;
-  ss << name << "-" << timestamp << endl;
+  ss << name << "-" << timestamp << ".jpg";
   imwrite(ss.str(), img);
   return;
 }
