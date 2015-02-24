@@ -671,10 +671,28 @@ void removePoint(vector<Point>& points, const Point& exclude) {
   return;
 }
 
+/**
+ * Print msg if the global DEBUG flag is on. 
+ * 
+ * @param msg the debug message to print. 
+ */
 void debugMsg(string msg) {
   if(DEBUG) {
     cout << "DEBUG: " << msg << endl;
   }
+  return;
+}
+
+/**
+ * [outputImg description]
+ * @param img       [description]
+ * @param name      [description]
+ * @param timestamp [description]
+ */
+void outputImg(const Mat& img, string name, ros::Time timestamp) {
+  stringstream ss;
+  ss << name << "-" << timestamp << endl;
+  imwrite(ss.str(), img);
   return;
 }
 
@@ -825,6 +843,7 @@ int main(int argc, char** argv) {
   vector<Point> colouredBlobs;
 
   while(ros::ok()) {
+    ros::Time timestamp = ros::Time::now();
     ros::spinOnce();
 		readFrame = cap.read(origFrame); // get new frame from camera
     // check if it's end of the video
@@ -835,7 +854,7 @@ int main(int argc, char** argv) {
         break;
       }
     }
-
+    outputImg(origFrame, "original", timestamp);
     preprocess(origFrame, frame);
   
     /* Do background subtraction */
@@ -851,7 +870,8 @@ int main(int argc, char** argv) {
     // Filter blobs by size to get rid of little bits 
     blobs.Filter(blobs, B_EXCLUDE, CBlobGetArea(), B_LESS, areaThresh);
     int numBlobs = blobs.GetNumBlobs();
-   
+    outputImg(fore, "foreground", timestamp);
+
     // Get bounding boxes for blobs
     // Don't need them stored to draw them, but we will need them later.
     vector<Rect> boundingBoxes;
@@ -876,6 +896,7 @@ int main(int argc, char** argv) {
       */
       inRange(origFrame, Scalar(bmin, gmin, rmin), Scalar(bmax, gmax, rmax),
           filteredFrame);
+      outputImg(filteredFrame, "filtered", timestamp);
 
       // Make a new mat from the original frame clipping out the 
       // enlarged ROI 
@@ -1026,6 +1047,8 @@ int main(int argc, char** argv) {
       */
     }
 
+    outputImg(origFrame, "kalman", timestamp);
+    
     // Do optical flow
     // opticalFlow(frame, prevFrame, origFrame); 
     
