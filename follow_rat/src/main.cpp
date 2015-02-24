@@ -75,7 +75,7 @@ int WC = 40; // amount to increase width by
 int WH = 30; // amount to increase height by
 
 // Misc
-int DEBUG = 1;
+int DEBUG = 0;
 
 using namespace cv;
 using namespace std;
@@ -148,7 +148,8 @@ vector<Point> mouseClickRats;
 bool mouseClicked = false;
 // The indices for the ranger values
 enum Wall {RIGHT = 0, CENTRE = 1, LEFT = 2};
-#define MAX_VTRANS 0.5
+#define MAX_VTRANS 0.1
+#define MAX_VROT 0.5
 // Issues same vrot for CONSEC frames before changing.
 #define CONSEC 5
 
@@ -240,7 +241,7 @@ double getDir(Point iRatLoc, Point iRatHeading, Point ratLoc, double mag, Mat& i
   // line(img, ratLoc, iRatLoc, 3);
   // Draw heading direction 
 
-  return turn*mag;
+  return turn;
 }
 
 /**
@@ -1138,21 +1139,26 @@ int main(int argc, char** argv) {
 		/**** Issue velocity commands ****/
     cmdvel_msg.header.stamp = ros::Time::now();
 
-		// Limit speed forward based on angle to Rat
-		float speed = MAX_VTRANS;
-		// vector between = iratLocation - ratLocation
-		if(!iRatKalmanEstim.empty() && !kalmanEstim.empty()) {
-			Point iratRatVec = iRatKalmanEstim[iRatKalmanEstim.size()-1] -
+		if(!rangersDecide) {
+			// vector between = iratLocation - ratLocation
+			if(!iRatKalmanEstim.empty() && !kalmanEstim.empty()) {
+				Point iratRatVec = iRatKalmanEstim[iRatKalmanEstim.size()-1] -
 					kalmanEstim[kalmanEstim.size()-1]; 
-			float angle = angleBetween(iratRatVec, heading);
-			//speed = -MAX_VTRANS * ((angle / PI) - 1);
-			//speed = (MAX_VTRANS/ PI) * sqrt((PI*PI) - (angle*angle));
-			speed = MAX_VTRANS * sqrt(1-(angle/PI)*(angle/PI));
-			cout << "speed: " << speed;
+				float angle = angleBetween(iratRatVec, heading);
+				//speed = -MAX_VTRANS * ((angle / PI) - 1);
+				//speed = (MAX_VTRANS/ PI) * sqrt((PI*PI) - (angle*angle));
+				// double vrotMag = MAX_VROT * sqrt(1-(angle/PI)*(angle/PI));
+				//double vrotMag = MAX_VROT*sqrt(angle/PI);
+				//vrot = vrotMag*vrot;
+				vrot = vrot*MAX_VROT;
+			} else {
+				vrot = vrot*MAX_VROT;
+			}
 		}
-
+		
+		cout << "vrot: " << vrot << endl;
     // keep moving forward unless obstacle
-    cmdvel_msg.magnitude = rangersDecide? vtrans : speed;
+    cmdvel_msg.magnitude = rangersDecide ? vtrans : MAX_VTRANS;
 		// Continue to publish the same rotational velocity command
 		// for CONSEC consecutive frames unless in obstacle avoidance mode.
 		if(pubCount < CONSEC && !rangersDecide) {
