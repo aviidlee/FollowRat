@@ -319,6 +319,18 @@ class TooFar: public exception {
   }
 };
 
+/**
+ * return the square of the distance between p and q. 
+ * 
+ * @param  p [description]
+ * @param  q [description]
+ * @return   [description]
+ */
+int distSq(Point p, Point q) {
+  Point diff = p - q;
+  return diff.ddot(diff);
+}
+
 void printUsageMessage() {
   cout << "Usage: ./bg_subtractor <deviceNo or file name> <num expected iRats>" 
        << "<num expected rats> [<output filename>]" << endl; 
@@ -558,6 +570,33 @@ Point findClosest(const vector<Point>& points, const Point& point) {
   return closest;
 }
 
+Point kalmanPredict(KalmanFilter& kf, const vector<Point>& possibleLocs, bool override) {
+  Mat prediction = kf.predict();
+  Point predictedPt(prediction.at<float>(0), prediction.at<float>(1));
+  if(override) {
+    // use mouse position if available 
+  } else {
+
+  }
+
+  Point correct = override && mouseClicked ? mouseClickRats[0] : findClosest(possibleLocs, predictedPt);
+
+  // if the closest thing is still really far away, don't update; it's 
+  // probably the green bucket thing moving. 
+  Point statePt;
+  if(distSq(predictedPt, correct) < DIST_THRESH || override) {
+    Mat_<float> meas(2, 1);
+    meas.setTo(Scalar(0));
+    meas(0) = correct.x;
+    meas(1) = correct.y;
+    Mat estimated = kf.correct(meas); 
+    statePt = Point(estimated.at<float>(0), estimated.at<float>(1));
+  } else {
+    throw TooFar();
+  }
+  return statePt;
+}
+
 /**
  * Takes a list of points which could represent a rat, and the Kalman
  * Filter which has been set up to predict that rat. It gets a prediction
@@ -587,17 +626,7 @@ Point kalmanRatPredict(KalmanFilter& kf, const vector<Point>& possibleLocs) {
   return statePt;
 }
 
-/**
- * return the square of the distance between p and q. 
- * 
- * @param  p [description]
- * @param  q [description]
- * @return   [description]
- */
-int distSq(Point p, Point q) {
-  Point diff = p - q;
-  return diff.ddot(diff);
-}
+
 
 /**
  * Get Kalman filter to predict location of iRat, then feeds in the location of the 
@@ -928,7 +957,7 @@ int main(int argc, char** argv) {
        */
       if(!colouredBlobs.empty()) {
         try {
-          kfPred = kalmanRobotPredict(iRatKF, colouredBlobs);
+          kfPred = kalmanPredict(iRatKF, colouredBlobs, false);
           iRatKalmanEstim.push_back(kfPred);
           debugMsg("Did Kalman prediction for robot");
         } catch(TooFar& e) {
@@ -939,7 +968,11 @@ int main(int argc, char** argv) {
             kfPred = iRatKalmanEstim[iRatKalmanEstim.size()-1];
           }
           debugMsg("Exception successfully CAUGHT");
-        }
+        } 
+      } else {
+          if(!iRatKalmanEstim.empty()) {
+            kfPred = iRatKalmanEstim[iRatKalmanEstim.size()-1];
+          }
       }
 
       circle(origFrame, kfPred, 5, green, 2);
@@ -976,8 +1009,23 @@ int main(int argc, char** argv) {
 
     // Do Kalman filter stuff. 
     if(kalmanInitialised) {
-      Point kfPred = kalmanRatPredict(KF, centroids);
-      kalmanEstim.push_back(kfPred);
+      Point kfPred;
+      if(!centroids.empty()) {
+        try {
+          kfPred = kalmanPredict(KF, centroids, true);
+          kalmanEstim.push_back(kfPred);
+        } catch(TooFar& e) {
+          if(!kalmanEstim.empty()) {
+            kfPred = kalmanEstim[kalmanEstim.size()-1];
+          }
+        }
+      } else {
+        // Keep the old prediction
+        if(!kalmanEstim.empty()) {
+            kfPred = kalmanEstim[kalmanEstim.size()-1];
+        }
+      }
+      
       // Draw the Kalman predictions 
       for (int i = 0; i < kalmanEstim.size()-1; i++) {
         line(origFrame, kalmanEstim[i], kalmanEstim[i+1], 
@@ -988,11 +1036,13 @@ int main(int argc, char** argv) {
       // Draw the rat history 
       // I dont' know why but I need the explicit check; somehow it magically 
       // gets into the loop even when size = 0; it magically thinks 0 < -1.
+      /*
       if(!ratMotionHist.empty()) {
         for(unsigned int j = 0; j < ratMotionHist.size()-1; j++) {
           line(origFrame, ratMotionHist[j], ratMotionHist[j+1], blue);
-      }  
-     }
+        } 
+      }
+      */
     }
 
     // Do optical flow
@@ -1021,7 +1071,9 @@ int main(int argc, char** argv) {
     for(int i = 0; i < numRats; i++) {
       stringstream ss;
       ss << "Rat " << i;
-      putText(origFrame, ss.str(), nowRatTrack[i].centroid, FONT, 0.5, blue, 2);
+      if(!kalmanEstim.empty()) {
+        putText(origFrame, ss.str(), kalmanEstim[kalmanEstim.size()-1], FONT, 0.5, red, 2);
+      }
       // putText(origFrame, "clicked here", mouseClickRats[i], FONT, 0.5, black, 2);
       debugMsg("Labelled rat positions");
     }
