@@ -975,10 +975,14 @@ int main(int argc, char** argv) {
       }
       
       // Draw the Kalman predictions 
-      for (int i = 0; i < kalmanEstim.size()-1; i++) {
-        line(origFrame, kalmanEstim[i], kalmanEstim[i+1], 
-            red, 1);
-      } 
+			// TODO size is unsized, size-1 is INT_MAX :(
+			if(!kalmanEstim.empty()) {
+				for (int i = 0; i < kalmanEstim.size()-1; i++) {
+					line(origFrame, kalmanEstim[i], kalmanEstim[i+1], 
+							red, 1);
+				} 
+			}
+
       // Draw Kalman's predicted point.
       circle(origFrame, kfPred, 5, red, 2);
       // Draw the rat history 
@@ -1047,6 +1051,15 @@ int main(int argc, char** argv) {
         heading = iRatKalmanEstim[histSize-1] - oldPoint;
 			// iRat location, heading, rat location, magnitude, frame to draw vis on. 
 				vrot = getDir(iRatKalmanEstim[histSize-1], heading, kalmanEstim[kalmanEstim.size()-1], 0.5, origFrame);
+				Point iratRatVec = iRatKalmanEstim[iRatKalmanEstim.size()-1] -
+					kalmanEstim[kalmanEstim.size()-1]; 
+				float angle = angleBetween(iratRatVec, heading);
+				//speed = -MAX_VTRANS * ((angle / PI) - 1);
+				//speed = (MAX_VTRANS/ PI) * sqrt((PI*PI) - (angle*angle));
+				// double vrotMag = MAX_VROT * sqrt(1-(angle/PI)*(angle/PI));
+				//double vrotMag = MAX_VROT*sqrt(angle/PI);
+				//vrot = vrotMag*vrot;
+				vrot = vrot*MAX_VROT;
 			} else {
         debugMsg("yay beans");
         // Use the old dumb code to find position of rat.  
@@ -1078,25 +1091,6 @@ int main(int argc, char** argv) {
 
 		/**** Issue velocity commands ****/
     cmdvel_msg.header.stamp = ros::Time::now();
-
-		if(!rangersDecide) {
-			// vector between = iratLocation - ratLocation
-			if(!iRatKalmanEstim.empty() && !kalmanEstim.empty()) {
-				Point iratRatVec = iRatKalmanEstim[iRatKalmanEstim.size()-1] -
-					kalmanEstim[kalmanEstim.size()-1]; 
-				float angle = angleBetween(iratRatVec, heading);
-				//speed = -MAX_VTRANS * ((angle / PI) - 1);
-				//speed = (MAX_VTRANS/ PI) * sqrt((PI*PI) - (angle*angle));
-				// double vrotMag = MAX_VROT * sqrt(1-(angle/PI)*(angle/PI));
-				//double vrotMag = MAX_VROT*sqrt(angle/PI);
-				//vrot = vrotMag*vrot;
-				vrot = vrot*MAX_VROT;
-			} else {
-				vrot = vrot*MAX_VROT;
-			}
-		}
-		
-		cout << "vrot: " << vrot << endl;
     // keep moving forward unless obstacle
     cmdvel_msg.magnitude = rangersDecide ? vtrans : MAX_VTRANS;
 		// Continue to publish the same rotational velocity command
