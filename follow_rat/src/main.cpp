@@ -612,7 +612,9 @@ bool intersects(const Point& centre, int radius, const Rect& rect) {
  * Find and return the largest circle in circles, 
  * where the returned circle is specified by the x, y 
  * coordinates of the centre, then radius. 
- * 
+ *
+ * NB if circles is empty, will return a circle centred
+ * at (0, 0) with a radius of 0.
  */
 vector<int> findMax(const vector<Vec3f> circles) {
   int max = 0;
@@ -822,7 +824,9 @@ int main(int argc, char** argv) {
       currentBlob.FillBlob(frame, Scalar(0, 255, 0));
       Rect currentRect = currentBlob.GetBoundingBox();
       // If this rect is not intersecting the arena, then don't bother processing it.
-      if(!intersects(Point(arena[0], arena[1]), arena[2], currentRect)) {
+      // Unless of course something failed and no circles were found 
+      if(!intersects(Point(arena[0], arena[1]), arena[2], currentRect) &&
+          arena[2] != 0) { // will get circle of zero radius is no circles found.
         continue;
       } 
 
