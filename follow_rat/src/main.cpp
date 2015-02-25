@@ -24,8 +24,6 @@
 /**************** Constants *********************/
 // Parameter for background subtraction
 #define HISTORY 100
-// Maximum distance possible (squared) in a standard webcam frame.
-#define MAX_DIST 640*640
 // Shorthand for font used for displaying text labels on frames
 #define FONT FONT_HERSHEY_SIMPLEX
 
@@ -50,17 +48,12 @@
 #define FRAMERATE 15
 // the maximum distance an two objects can be apart between frames for them
 // to be identified as the same object.
-//#define DIST_THRESH (640/4)*(640/4)
 #define DIST_THRESH ((640*640)/2)
 // codes for keyboard presses 
 #define keyP 1048688
 #define keyEsc 1048603
-// What people eat 
+// What people eat. Also a mathematical constant of minor importance. 
 #define PI 3.14
-
-// number of previous locations of blobs to keep track of.
-#define MAX_AGE
-#define VISUALISE true
 
 // Parameters for colour filtering.
 int bmin = 0;
@@ -94,20 +87,13 @@ int areaThresh = 180;
 // pause program 
 bool paused;
 
-
 /******************** Other stuff...********************/
 // Number of rats expected to be in frame. 
 int numRats;
 // Number of iRats expected to be in frame. 
 int numiRats;
-
-int histCount = 0;
+// How far to go back in history when averaging the iRat's heading vector.
 int maxHistCount = 5;
-// whether or not velocity command should be decided by ranger callback or auton. prog
-// The rotational velocity to be issued to the iRat 
-double vrotRangers; 
-// The translation velocity to be issued to the iRat
-double vtransRangers;
 
 // Stores the mouse click positions; required for updating the rats' positions.
 vector<Point> mouseClickRats;
@@ -401,12 +387,6 @@ Point findClosest(const vector<Point>& points, const Point& point) {
 Point kalmanPredict(KalmanFilter& kf, const vector<Point>& possibleLocs, bool override) {
   Mat prediction = kf.predict();
   Point predictedPt(prediction.at<float>(0), prediction.at<float>(1));
-  if(override) {
-    // use mouse position if available 
-  } else {
-
-  }
-
   Point correct = override && mouseClicked ? mouseClickRats[0] : findClosest(possibleLocs, predictedPt);
 
   // if the closest thing is still really far away, don't update; it's 
@@ -451,9 +431,9 @@ float angleBetween(Point v1, Point v2) {
 
 	float a = dot / (len1 * len2);
 
-	if (a >= 1.0)
+	if (a >= 1.0) {
 		return 0.0;
-	else if (a <= -1.0) {
+  } else if (a <= -1.0) {
 		return PI;
 	}
 	return acos(a);
@@ -627,9 +607,18 @@ int main(int argc, char** argv) {
   // message to publish
   irat_msgs::IRatVelocity cmdvel_msg;// instantiate once only because of header squence number
   pub_cmdvel = node.advertise<irat_msgs::IRatVelocity>(iRatVelTopic, 1);
+  
+  // Subscribe to rangers
+  string iRatRangersTopic = topic + "/serial/rangers";
+  ros::Subscriber sub_rangers =
+    node.subscribe<irat_msgs::IRatRangers>(iRatRangersTopic, 1, rangersCallback,
+      ros::VoidConstPtr(), ros::TransportHints().tcpNoDelay());
+
 	// number of times we've consecutively published this command
 	int pubCount = 0;
+  // The old rotational velocity, for publishing same one repeatedly. 
 	double oldVrot;
+  // The rotational and translational velocity to be issued to the iRat.
 	double vrot, vtrans;
   // The current locations for the iRats
   vector<Point> nowRobotLocs;
@@ -639,11 +628,6 @@ int main(int argc, char** argv) {
   vector<Point> nowRatLocs;
   // Locations from last frame for the rats  
   vector<Point> lastRatLocs; 
-
-  string iRatRangersTopic = topic + "/serial/rangers";
-  ros::Subscriber sub_rangers =
-    node.subscribe<irat_msgs::IRatRangers>(iRatRangersTopic, 1, rangersCallback,
-      ros::VoidConstPtr(), ros::TransportHints().tcpNoDelay());
   
   cout << "Ros initialised!" << endl;
 
@@ -661,7 +645,7 @@ int main(int argc, char** argv) {
   Scalar colour = Scalar(rng.uniform(0, 255), rng.uniform(0, 255),
       rng.uniform(0, 255));
 
-  // Create Kalman filter and initialise
+  // Kalman filter for tracking rat's position. 
   KalmanFilter KF(4, 2, 0); // 4 variables, 2 meaurements
  
   // For storing measurements to feed back into KF. 
@@ -744,7 +728,6 @@ int main(int argc, char** argv) {
   
   CBlob currentBlob;
   bool readFrame;
-  vector<Point> ratMotionHist;
   vector<Point> colouredBlobs;
 
   while(ros::ok()) {
@@ -784,8 +767,6 @@ int main(int argc, char** argv) {
     // Centroids of blobs 
     vector<Point> centroids;
 
-    debugMsg("Starting the for looppp");
-
     for(int i = 0; i < numBlobs; i++) {
       currentBlob = blobs.GetBlob(i);
       centroids.push_back(currentBlob.getCenter());
@@ -798,20 +779,13 @@ int main(int argc, char** argv) {
         continue;
       } 
 
-      // Draw the unmodified bounding box onto the processed images frame.
-      rectangle(frame, currentRect.tl(), currentRect.br(),
-          colour, 2, 8, 0);
-
-      /* 
-      * Colour filter the entire original frame so that we know what 
-      * the colour filtering is doing.
-      */
-      inRange(origFrame, Scalar(bmin, gmin, rmin), Scalar(bmax, gmax, rmax),
-          filteredFrame);
-
       // Make a new mat from the original frame clipping out the 
       // enlarged ROI 
       Rect enlarged = enlargeRect(origFrame, currentRect);
+      // Draw enlarged rectangle on original frame.
+      rectangle(origFrame, enlarged.tl(), enlarged.br(), colour,
+          2, 8, 0);
+      // Mat holding the enlarged ROI
       Mat bigMat(origFrame, enlarged);
       Mat bigMatRes(bigMat);
       
@@ -824,9 +798,7 @@ int main(int argc, char** argv) {
       morphOps(bigMatRes, bigMatRes);
       vector<vector<Point> > contours;
       vector<Vec4i> hierachy;
-      
-      // cout << "Finding contours for filtered blobs..." << endl;
-      
+
       findContours(bigMatRes, contours, hierachy, CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE);
       if(hierachy.size() > 0) {
         // int numObj = hierachy.size();
@@ -842,10 +814,6 @@ int main(int argc, char** argv) {
           }
         }
       }
-
-      // Draw enlarged rectangle on original frame.
-      rectangle(origFrame, enlarged.tl(), enlarged.br(), colour,
-          2, 8, 0);
     }
     
     /******************** iRat Position Update ********************/
