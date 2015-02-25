@@ -132,11 +132,10 @@ vector<vector<Track> > iRatHistory;
 int histCount = 0;
 int maxHistCount = 5;
 // whether or not velocity command should be decided by ranger callback or auton. prog
-bool rangersDecide = false;
 // The rotational velocity to be issued to the iRat 
-double vrot; 
+double vrotRangers; 
 // The translation velocity to be issued to the iRat
-double vtrans;
+double vtransRangers;
 
 // Previous frame's tracks for rats 
 vector<Track> prevRatTracks;
@@ -152,9 +151,11 @@ enum Wall {RIGHT = 0, CENTRE = 1, LEFT = 2};
 #define MAX_VROT 0.5
 // Issues same vrot for CONSEC frames before changing.
 #define CONSEC 5
+vector<double> rangerVals(3);
 
 /***** Kalman *****/
 const int MINHESSIAN = 400;
+
 
 
 /**
@@ -168,20 +169,27 @@ const int MINHESSIAN = 400;
 void rangersCallback(irat_msgs::IRatRangersConstPtr rangers) {
   // Check if we are heading straight into something.
   // Use 10cm for now  
-  rangersDecide = true;
+  rangerVals[RIGHT] = rangers->rangers[RIGHT].range;
+  rangerVals[LEFT] = rangers->rangers[LEFT].range;
+  rangerVals[CENTRE] = rangers->rangers[CENTRE].range;
+	/**
+	rangersDecide = true;
   if(rangers->rangers[CENTRE].range < 0.1) {
 		// vrot = rng.uniform(0, 1) < 0.5	? 0.5 : -0.5;
-		vtrans = 0;
+		vtransRangers = 0;
 	} else if (rangers->rangers[RIGHT].range < 0.05) {
-    vrot = 0.5;
-		vtrans = 0;
+    vrotRangers = 0.5;
+		vtransRangers = 0;
+		rangersDecide = false;
   } else if(rangers->rangers[LEFT].range < 0.05) {
-    vrot = -0.5;
-		vtrans = 0;
+    vrotRangers = -0.5;
+		vtransRangers = 0;
+		rangersDecide = false;
   } else { // let the tracking program decide the velocity.
     rangersDecide = false;
   }
-
+	**/
+	
   return;
 }
 
@@ -655,7 +663,8 @@ int main(int argc, char** argv) {
 	// number of times we've consecutively published this command
 	int pubCount = 0;
 	double oldVrot;
-	
+	double vrot, vtrans;
+
   iRatHistory.resize(maxHistCount);
 	cout << "iRatHistorySize: " << iRatHistory.size() << endl;
   
@@ -975,10 +984,14 @@ int main(int argc, char** argv) {
       }
       
       // Draw the Kalman predictions 
-      for (int i = 0; i < kalmanEstim.size()-1; i++) {
-        line(origFrame, kalmanEstim[i], kalmanEstim[i+1], 
-            red, 1);
-      } 
+			// TODO size is unsized, size-1 is INT_MAX :(
+			if(!kalmanEstim.empty()) {
+				for (int i = 0; i < kalmanEstim.size()-1; i++) {
+					line(origFrame, kalmanEstim[i], kalmanEstim[i+1], 
+							red, 1);
+				} 
+			}
+
       // Draw Kalman's predicted point.
       circle(origFrame, kfPred, 5, red, 2);
       // Draw the rat history 
@@ -1034,7 +1047,7 @@ int main(int argc, char** argv) {
 
 		Point heading; // the iRat's heading 
     // Work out which way the iRat should turn 
-    if(!prevTracks.empty() && !rangersDecide) {
+    if(!prevTracks.empty()) {
       debugMsg("Yoyoyo");
 			if(!kalmanEstim.empty() && !iRatKalmanEstim.empty()) {
         debugMsg("Adventure time!");
@@ -1047,6 +1060,19 @@ int main(int argc, char** argv) {
         heading = iRatKalmanEstim[histSize-1] - oldPoint;
 			// iRat location, heading, rat location, magnitude, frame to draw vis on. 
 				vrot = getDir(iRatKalmanEstim[histSize-1], heading, kalmanEstim[kalmanEstim.size()-1], 0.5, origFrame);
+				Point iratRatVec = iRatKalmanEstim[iRatKalmanEstim.size()-1] -
+					kalmanEstim[kalmanEstim.size()-1]; 
+				float angle = angleBetween(iratRatVec, heading);
+				//speed = -MAX_VTRANS * ((angle / PI) - 1);
+				//speed = (MAX_VTRANS/ PI) * sqrt((PI*PI) - (angle*angle));
+				// double vrotMag = MAX_VROT * sqrt(1-(angle/PI)*(angle/PI));
+				//double vrotMag = MAX_VROT*sqrt(angle/PI);
+				//vrot = vrotMag*vrot;
+				vrot = vrot*MAX_VROT;
+				if(angle < PI/6) {
+					// if turning angle is small, then just turn a little bit :)
+					vrot = vrot/5;
+				} 
 			} else {
         debugMsg("yay beans");
         // Use the old dumb code to find position of rat.  
@@ -1061,7 +1087,13 @@ int main(int argc, char** argv) {
     }
 
     debugMsg("Doing the harmless stuff now.");
-
+		
+		if(rangerVals[CENTRE] < 0.15) {
+			vtrans = 0;
+		} else {
+			vtrans = MAX_VTRANS;
+		}
+		
     //imshow("Filtered frame", filteredFrame);
 		//imshow("Processed", frame);
     // imshow("Background", back);
@@ -1078,36 +1110,18 @@ int main(int argc, char** argv) {
 
 		/**** Issue velocity commands ****/
     cmdvel_msg.header.stamp = ros::Time::now();
-
-		if(!rangersDecide) {
-			// vector between = iratLocation - ratLocation
-			if(!iRatKalmanEstim.empty() && !kalmanEstim.empty()) {
-				Point iratRatVec = iRatKalmanEstim[iRatKalmanEstim.size()-1] -
-					kalmanEstim[kalmanEstim.size()-1]; 
-				float angle = angleBetween(iratRatVec, heading);
-				//speed = -MAX_VTRANS * ((angle / PI) - 1);
-				//speed = (MAX_VTRANS/ PI) * sqrt((PI*PI) - (angle*angle));
-				// double vrotMag = MAX_VROT * sqrt(1-(angle/PI)*(angle/PI));
-				//double vrotMag = MAX_VROT*sqrt(angle/PI);
-				//vrot = vrotMag*vrot;
-				vrot = vrot*MAX_VROT;
-			} else {
-				vrot = vrot*MAX_VROT;
-			}
-		}
-		
-		cout << "vrot: " << vrot << endl;
     // keep moving forward unless obstacle
-    cmdvel_msg.magnitude = rangersDecide ? vtrans : MAX_VTRANS;
+    cmdvel_msg.magnitude = vtrans;
 		// Continue to publish the same rotational velocity command
 		// for CONSEC consecutive frames unless in obstacle avoidance mode.
-		if(pubCount < CONSEC && !rangersDecide) {
-    	cmdvel_msg.angle = oldVrot;
-    } else { // update to new vrot, reset pubCount 
+		if(pubCount < CONSEC) {
+			cmdvel_msg.angle = vrot; 
+		} else {
 			cmdvel_msg.angle = vrot;
 			oldVrot = vrot;
 			pubCount = 0;
 		}
+		
 		pubCount++;
 		pub_cmdvel.publish(cmdvel_msg);
     cmdvel_msg.header.seq++;
