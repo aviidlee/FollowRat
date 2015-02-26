@@ -7,13 +7,23 @@
 #include <opencv2/opencv.hpp>
 #include <math.h>
 #include <cmath>
+#include <string>
 
 // To be clear when accessing vector (which simulates irat_msg)
 #define MAG 0
 #define VROT 1
-#define MIDSCREENX 320
-#define MIDSCREENY 240
 #define ARBMAG 10 // Define an arbitrary magnitude for heading direction
+#define PI 3.14
+
+//defines for visuliser
+#define SCREENX 640
+#define SCREENY 480
+#define MIDSCREENX SCREENX/2
+#define MIDSCREENY SCREENY/2
+#define DELAY 50
+#define XPOS 0
+#define YPOS 1
+
 
 using namespace std;
 using namespace cv;
@@ -28,6 +38,7 @@ struct test_t {
 
 //GLOBAL
 int debug = 1;
+Point ratPos(-1, -1);
 
 // HEADERS 
 /*
@@ -93,9 +104,10 @@ void set_msg(vector<float>& msg, Point& iRatLocation,
 	float angle = angleBetween(iRatHeading, diff);
 	
 	// Which side is the rat on? (left or right)
-	Point change = diff - 
+	//Point change = diff - 
 	
-	
+  msg[MAG] = 0.1;
+  msg[VROT] = 0.0;
 	
 
 }
@@ -205,25 +217,18 @@ void create_tests(vector<test_t>& tests) {
 
 
 
-#define SCREENX 640
-#define SCREENY 480
-#define DELAY 50
-
 struct polar_t {
 	float mag;
 	float angle;
 };
 
-void callback(int event, int x, int y, int flags, void *userdata){
-	
-}
 
 
 /**
  * Given a cartesian point return it's polar eqivalance
  * @params 		p - Point to convert
  */
-polar_t cvtPolar2Cart(Point p){
+polar_t cvtCart2Polar(Point p){
 	float r = sqrt( pow(p.x, 2)  + pow(p.y,2));  
 	float theta = atan(p.y/p.x);
 	polar_t result{r,theta};
@@ -234,9 +239,9 @@ polar_t cvtPolar2Cart(Point p){
  * Convert given polar point to cartesian
  * @params 		p - polar point to convert
  */
-Point cvtCart2Polar(polar_t p){
-	int x = (int) p.mag * cos(p.angle);
-	int y = (int) p.mag * sin(p.angle);
+Point cvtPolar2Cart(polar_t p){
+	int x = (int) (p.mag * cos(p.angle));
+	int y = (int) (p.mag * sin(p.angle));
 	return Point(x, y);
 }
 
@@ -245,7 +250,15 @@ Point cvtCart2Polar(polar_t p){
  * @params		p - catesian point to convert
  */
 Point cvtPointFlipy(Point p){
-	return Point(p.x, SCREENY - p.y);
+	return Point(p.x, p.y - SCREENY);
+}
+
+/**
+ * convert from flippy world to normal cartesian world
+ * @params    p - Point in flippy world to convert
+ */
+Point cvtFlipyPoint(Point p) {
+  return Point(p.x, SCREENY + p.y);
 }
 
 /**
@@ -253,25 +266,52 @@ Point cvtPointFlipy(Point p){
  * @params 		p1 - first polar point
  * @params 		p2 - second polar point
  */
-polar_t add_vecs(polar_t p1, polar_t p2) {
+polar_t addVecs(polar_t p1, polar_t p2) {
 	Point rc = cvtPolar2Cart(p1) + cvtPolar2Cart(p2);
 	return cvtCart2Polar(rc);
 }
 
-void run_visual(void){
-	Mat bg(SCREENX, SCREENY);
-	Mat img;
-	polar_t iratPos;
-	polar_t ratPos;
 
-	char *WINDOW_NAME = "Simulation";
-	namedWindow(WINDOW_NAME, CV_WINDOW_AUTOSIZE);
+void callback(int event, int x, int y, int flags, void *userdata){
+  ratPos = cvtFlipyPoint(Point(x, y)); // remember to change to normal cart
+}
+
+
+void run_visual(void){
+	Mat bg(SCREENY, SCREENX, CV_8UC3);
+	Mat img;
+	polar_t iratPos = cvtCart2Polar(cvtFlipyPoint(Point(MIDSCREENX, MIDSCREENY)));
+  polar_t iratHeading_p{10.0, 0.0}; // have him point whatever flat is
+  
+
+	string WINDOW_NAME = "Simulation";
+	namedWindow(WINDOW_NAME);
+  setMouseCallback(WINDOW_NAME, callback, 0);
 
 	imshow(WINDOW_NAME, bg);
 
+  vector<float> msg{0.0, 0.0};
+  polar_t deltaHeading;
 	while(1) {
 		img = bg.clone();
-		
+    Point headingPoint = cvtPointFlipy(cvtPolar2Cart(iratHeading_p));
+    Point iratloc = cvtPointFlipy(cvtPolar2Cart(iratPos)); // iratLoc 
+    Point ratloc = cvtPointFlipy(ratPos);                // ratLoc
+	  set_msg(msg, iratloc, ratloc, headingPoint);
+    // Now convert the msg sent into polar so we can use it
+    deltaHeading.mag = msg[MAG];
+    deltaHeading.angle = msg[VROT];
+
+    // Now update iRat position based on new movement
+    iratPos = addVecs(iratPos, deltaHeading);
+
+    cout << "delta " << cvtPointFlipy(cvtPolar2Cart(iratPos)) << endl;
+    // Draw iRat
+    int iratSize = 5;
+    circle(img, 
+        cvtPointFlipy(cvtPolar2Cart(iratPos)),
+        iratSize,
+        Scalar(255, 0 ,0)); 
 
 		imshow(WINDOW_NAME, img);
 		waitKey(DELAY);
@@ -281,7 +321,7 @@ void run_visual(void){
 
 
 int main(int argc, char *argv[]) {
-	if (argc == 2 && argv[1] == 'v') {
+	if (argc == 2 && argv[1][0] == 'v') {
 		run_visual();
 		return 0;
 	}
