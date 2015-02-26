@@ -121,6 +121,7 @@ void rangersCallback(irat_msgs::IRatRangersConstPtr rangers) {
   rangerVals[RIGHT] = rangers->rangers[RIGHT].range;
   rangerVals[LEFT] = rangers->rangers[LEFT].range;
   rangerVals[CENTRE] = rangers->rangers[CENTRE].range;
+
   return;
 }
 
@@ -622,7 +623,7 @@ int main(int argc, char** argv) {
   // message to publish
   irat_msgs::IRatVelocity cmdvel_msg;// instantiate once only because of header squence number
   pub_cmdvel = node.advertise<irat_msgs::IRatVelocity>(iRatVelTopic, 1);
-  
+
   // Subscribe to rangers
   string iRatRangersTopic = topic + "/serial/rangers";
   ros::Subscriber sub_rangers =
@@ -903,7 +904,7 @@ int main(int argc, char** argv) {
         heading = lastRobotLocs[0] - nowRobotLocs[0];
       	vrot = getVrot(nowRobotLocs[0], heading, nowRatLocs[0]); 
         vtrans = getVtrans(nowRobotLocs[0], heading, nowRatLocs[0]);
-			}
+      }
 
 			stringstream ss;
       ss << vrot;
@@ -915,8 +916,10 @@ int main(int argc, char** argv) {
 		
 		if(rangerVals[CENTRE] < 0.15) {
 			vtrans = 0;
+		} else {
+			vtrans = MAX_VTRANS;
 		}
-		
+
     imshow("Original frame", origFrame);
     writer.write(origFrame);
     
