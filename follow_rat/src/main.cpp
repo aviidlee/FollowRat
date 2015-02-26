@@ -96,7 +96,7 @@ int numiRats;
 int maxHistCount = 5;
 
 // Stores the mouse click positions; required for updating the rats' positions.
-vector<Point> mouseClickRats;
+vector<Point> mouseClickRats(2);
 // Whether or not the mouse has been clicked during this frame.
 bool mouseClicked = false;
 // The indices for the ranger values
@@ -543,10 +543,23 @@ int oldPositionUpdate(const vector<Point>& possibleLocs, const vector<Point>& la
   return -1;
 } 
 
-double getVrot(const Point& iRatLoc, const Point& iRatHeading, const Point& ratLoc) {
-  int dir = getDir(iRatLoc, iRatHeading, ratLoc);
+/**
+ * Get the angle by which the iRat would have to turn in order to be 
+ * facing the rat. 
+ * 
+ * @param  iRatLoc     [description]
+ * @param  iRatHeading [description]
+ * @param  ratLoc      [description]
+ * @return             [description]
+ */
+double getTurningAngle(const Point& iRatLoc, const Point& iRatHeading, const Point& ratLoc) {
   Point iratRatVec = ratLoc - iRatLoc;
-  float angle = angleBetween(iratRatVec, iRatHeading);
+  return angleBetween(iratRatVec, iRatHeading);
+}
+
+double getVrot(const Point& iRatLoc, const Point& iRatHeading, const Point& ratLoc) {
+  double dir = getDir(iRatLoc, iRatHeading, ratLoc);
+  float angle = getTurningAngle(iRatLoc, iRatHeading, ratLoc);
   double vrot = dir*MAX_VROT;
   if(angle < PI/6) {
     // if turning angle is small, then just turn a little bit :)
@@ -556,7 +569,8 @@ double getVrot(const Point& iRatLoc, const Point& iRatHeading, const Point& ratL
 }
 
 double getVtrans(const Point& iRatLoc, const Point& iRatHeading, const Point& ratLoc) {
-  return MAX_VTRANS;
+  float angle = getTurningAngle(iRatLoc, iRatHeading, ratLoc);
+  return MAX_VTRANS*sqrt(1-((angle*angle)/(PI*PI)));
 }
 
 Point getHeading(const vector<Point>& history, int goBack) {
@@ -586,6 +600,7 @@ Point updateKalman(KalmanFilter& kf, vector<Point>& estimates,
         kfPred = estimates[estimates.size()-1];
     }
   }
+  estimates.push_back(kfPred);
 
   return kfPred;
 }
@@ -819,6 +834,7 @@ int main(int argc, char** argv) {
     /******************** iRat Position Update ********************/
     // Use the non-Kalman way to update tracks for use when Kalman not initialised. 
     oldPositionUpdate(colouredBlobs, lastRobotLocs, nowRobotLocs, false);
+    debugMsg("Did old position update");
 
     // Use Kalman filter to update robot location 
     if(iRatKalmanInit) {
@@ -849,6 +865,7 @@ int main(int argc, char** argv) {
     /******************** Rat Position Update ********************/
     // Update positions of rats using the old method; 
     oldPositionUpdate(centroids, lastRatLocs, nowRatLocs, true); 
+    debugMsg("Old position update for rat");
     // Initialise Kalman Filter when the rat is identified with mouse click.
     if(!kalmanInitialised && mouseClicked) {
       init_kalman(&KF, &mouseClickRats[0]);
@@ -859,12 +876,14 @@ int main(int argc, char** argv) {
     // Update the rat's Kalman filter 
     if(kalmanInitialised) {
       Point ratLoc = updateKalman(KF, kalmanEstim, centroids, true);
+      debugMsg("Updated Kalman for rat");
       circle(origFrame, ratLoc, 5, red, 2);
       putText(origFrame, "Rat", ratLoc, FONT, 0.5, red, 2);
 
       // Draw trajectory 
       for (unsigned int i = 1; i < kalmanEstim.size(); i++) {
-        line(origFrame, kalmanEstim[i-1], kalmanEstim[i], green, 1);
+        debugMsg("Drawing rat trajectory");
+        line(origFrame, kalmanEstim[i-1], kalmanEstim[i], red, 1);
       } 
     }
     
