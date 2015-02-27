@@ -108,7 +108,7 @@ void set_msg(vector<float>& msg, Point2f& iRatLocation,
 	//Point2f change = diff - 
 	
   msg[MAG] = 0.1;
-  msg[VROT] = 0.0;
+  msg[VROT] = 0.9;
 	
 
 }
@@ -265,12 +265,22 @@ void pnp(string name, Point2f p) {
 	printpoint(p);
 }
 
+
+
+/**
+ * Calculate the magnitude of a Point2f
+ * @params 		p - the point to find the magnitude of
+ */
+float mag(Point2f p){
+	return sqrt( pow(p.x, 2)  + pow(p.y,2));  
+}
+
 /**
  * Given a cartesian point return it's polar eqivalance
  * @params 		p - Point2f to convert
  */
 polar_t cvtCart2Polar(Point2f p){
-	float r = sqrt( pow(p.x, 2)  + pow(p.y,2));  
+	float r = mag(p);
 	float theta = atan(p.y/p.x);
 	polar_t result{r,theta};
 	return result;
@@ -312,8 +322,8 @@ polar_t addVecs(polar_t p1, polar_t p2) {
 	Point2f p1_cart = cvtPolar2Cart(p1);
 	Point2f p2_cart = cvtPolar2Cart(p2);
 	Point2f np = Point2f(p1_cart.x + p2_cart.x, p1_cart.y + p2_cart.y);
-	Point2f rc = p1_cart + p2_cart; 
-	polar_t result = cvtCart2Polar(rc);
+	//Point2f rc = p1_cart + p2_cart; 
+	polar_t result = cvtCart2Polar(np);
 	/*
 	pnp("p1:", p1);
 	pnp("p2:", p2);
@@ -325,6 +335,15 @@ polar_t addVecs(polar_t p1, polar_t p2) {
 	pnp("result:", result);
 	*/
 	return result;
+}
+
+/**
+ * Given a vector reutrn a normalised copy
+ * @params 		p - the vector to normalise
+ */
+Point2f normalise(Point2f& p){
+	float m = mag(p);
+	return Point2f(p.x/m, p.y/m);
 }
 
 
@@ -384,11 +403,13 @@ void run_visual(void){
     deltaHeading.angle = msg[VROT];
 
 		// Update the iRats heading direction
-		//TODO
+		iratHeading_p = addVecs(iratHeading_p, deltaHeading);
+		iratHeading_p.mag = iratHeading_p.mag / iratHeading_p.mag;
 
 	
+		cout << "Heading" << iratHeading_p.mag << " " << iratHeading_p.angle << endl;
     // Now update iRat position based on new movement
-    iratPos = addVecs(iratPos, deltaHeading);
+    iratPos = addVecs(iratPos, iratHeading_p); // TODO going to need to normalise iratheading now
 
     // Draw iRat
     int iratSize = 5;
