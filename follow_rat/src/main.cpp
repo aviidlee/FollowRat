@@ -113,7 +113,8 @@ vector<double> rangerVals(3);
 const int MINHESSIAN = 400;
 
 /**
- * Update the ranger data.
+ * Update the ranger data, which is stored in the global variable
+ * rangerVals. 
  * 
  * @param rangers the pointer to the ranger message. 
  */
@@ -143,26 +144,16 @@ double getDir(Point iRatLoc, Point iRatHeading, Point ratLoc) {
 }
 
 /**
- * Updates the iRat velocity command message with the new rotational and 
- * translational velocity required to follow the rat. 
- *
- * @require each call to this function should use the same msg object so that
- * the header stamp can be incremented correctly, and so that previous command
- * velocities are accessible.
+ * Function called whenever there is a mouse event in the frame. 
+ * Left click updates the position of rat 1 and right click updates 
+ * the position of rat 2 (although the rest of the code does not currently
+ * support two rats)
  * 
- * @param msg         the message to be updated. The same message object 
- *                    should be passed here to allow the header stamp to be
- *                    incremented correctly each time. 
- *                     
- * @param iRatLoc     the current pixel location of the iRat in the frame.
- * @param iRatHeading the current heading direction of the iRat. 
- * @param ratLoc      the current pixel location of the rat in the frame.
- */
-
-
-/**
- * Click to specify where the rats are. Left mouse button specifies where 
- * rat 1 is, and right mouse button specifies where rat 2 is. 
+ * @param event    the mouse event; movement, clicks etc. 
+ * @param x        the x coordinate of the mouse event 
+ * @param y        the y coordinate of the mouse event 
+ * @param flags    flags
+ * @param userdata custom user data, unused. 
  */
 void mouseCallback(int event, int x, int y, int flags, void* userdata) {
 
@@ -230,29 +221,40 @@ void createTrackbars() {
 }
 
 /**
- * Exception to be thrown when 
+ * When updating the Kalman filter, the correct measurement is considered
+ * to be the nearest moving object to what the Kalman filter predicted. 
+ * But if the nearest moving object is very far away, then chances are that 
+ * the object we were tracking has stopped moving rather than jumped across 
+ * the entire arena in one frame. Thus if the closest moving object is too
+ * far away (as determined by a globally-defined threshold), we throw this
+ * exception. 
  */
 class TooFar: public exception {
   virtual const char* what() const throw() {
-    return "This is a cryptic exception message. Ehehehe.";
+    return "The nearest moving object is too far away!";
   }
 };
 
 /**
- * return the square of the distance between p and q. 
+ * Return the square of the distance between p and q. 
  * 
- * @param  p [description]
- * @param  q [description]
- * @return   [description]
+ * @param  p the first point 
+ * @param  q the second point 
+ * @return   the square of the distance between p and q.
  */
 int distSq(Point p, Point q) {
   Point diff = p - q;
   return diff.ddot(diff);
 }
 
+/**
+ * Print the usage message.
+ */
 void printUsageMessage() {
-  cout << "Usage: ./bg_subtractor <deviceNo or file name> <num expected iRats>" 
-       << "<num expected rats> [<output filename>]" << endl; 
+  cout << "Usage: rosrun follow_rat follow [_topic:=/<irat name>] <deviceNo or file name> <num expected iRats>" 
+       << "<num expected rats> [<output filename>] [<time to wait between frames>]" << endl; 
+  cout << "Please refer to USER_README.txt for further usage instructions." << endl;
+  return;
 }
 
 /**
@@ -273,6 +275,9 @@ void morphOps(Mat& src, Mat& dest, const Mat& eroder=getStructuringElement(MORPH
 /**
  * Preprocess the image by doing Gaussian blur and turning it into greyscale. 
  * Parameters come from trackbar sliders. I.e., dynamically adjustable at runtime.
+ *
+ * @param src  the source Mat 
+ * @param dest the destination Mat to put the processed frame into.
  */
 void preprocess(Mat& src, Mat& dest) {
   // make the kernel size odd. Else crash.  
@@ -283,12 +288,11 @@ void preprocess(Mat& src, Mat& dest) {
   return;
 }
 
-
 /**
  * Enlarge the given rectangle by increasing its width and height by a 
  * given amount in a manner such that it still fits the given frame,
  * and return a Mat corresponding to that enlarged rectangle. 
- *
+ * The enlargement parameters are #defined. 
  *
  * @param rect the original rectangle
  * @param origFrame the frame from which to clip out the enlarged ROI.
@@ -377,13 +381,23 @@ Point findClosest(const vector<Point>& points, const Point& point) {
 /**
  * Predict the next location of the object which kf is tracking. 
  *
+ * The object in possibleLocs which is closest to the kalman filter's 
+ * prediction is fed into the filter as the correction.
  * 
- * @param  kf           [description]
- * @param  possibleLocs [description]
+ * @param  kf           the Kalman filter 
+ * @param  possibleLocs the list of possible locations of the actual object;
+ *                      for the iRat, this will be all moving objects of the right colour
+ *                      (default green), and for the rat, it will be all the moving objects
+ *                      minus the one identified as the iRat.
  * @param  override     if set to true, allows mouse clicks (which manually identify
  *                      location of rat in the frame) to be used as the correction for
  *                      kf, instead of the closest point in possibleLocs
- * @return              [description]
+ * @return              the Kalman estimation produced after the correction.
+ *
+ * @throw  TooFar       Thrown when the 'correct' location of the object is unreasonably far away
+ *                      (as determined by a global threshold); it's not possible for an object to
+ *                      move across the entire frame in one frame, and in reality 
+ *                      the object we are tracking has probably stopped moving. 
  */
 Point kalmanPredict(KalmanFilter& kf, const vector<Point>& possibleLocs, bool override) {
   Mat prediction = kf.predict();
@@ -407,10 +421,10 @@ Point kalmanPredict(KalmanFilter& kf, const vector<Point>& possibleLocs, bool ov
 }
 
 /**
- * Removes the Point exclude from the vector points 
+ * Removes the Point exclude from the vector points. 
  * 
- * @param points  [description]
- * @param exclude [description]
+ * @param points  the vector of points 
+ * @param exclude the point to exclude 
  */
 void removePoint(vector<Point>& points, const Point& exclude) {
   vector<Point>::iterator iter = find(points.begin(), points.end(), exclude);
@@ -422,7 +436,11 @@ void removePoint(vector<Point>& points, const Point& exclude) {
 }
 
 /**
- * Calculate the angle between two points in radians
+ * Calculate the angle between two vectors in radians.
+ * 
+ * @param  v1 the first vector
+ * @param  v2 the second vector 
+ * @return    the angle between v1 and v2 in radians, value in [0, Pi].
  */
 float angleBetween(Point v1, Point v2) {
 	float len1 = sqrt(v1.x * v1.x + v1.y * v1.y);
@@ -453,10 +471,16 @@ void debugMsg(string msg) {
 }
 
 /**
- * [outputImg description]
- * @param img       [description]
- * @param name      [description]
- * @param timestamp [description]
+ * Write img to a file named name-timestamp-jpg. 
+ *
+ * Used mainly to output intermediate steps in the computation
+ * to file for debugging/explaining the code. 
+ * 
+ * @param img       the image to output
+ * @param name      the name of the processing stage; e.g., foreground.
+ * @param timestamp the current time, usually as returned by ros::Time::now().
+ *                  used to keep intermediate steps from the same original 
+ *                  frame together.
  */
 void outputImg(const Mat& img, string name, ros::Time timestamp) {
   stringstream ss;
@@ -470,10 +494,12 @@ void outputImg(const Mat& img, string name, ros::Time timestamp) {
  * circle at centre centre of radius radius intersects
  * with rect. 
  * 
- * @param  centre [description]
- * @param  radius [description]
- * @param  rect   [description]
- * @return        [description]
+ * @param  centre the centre of the circle
+ * @param  radius the radius of the circle
+ * @param  rect   the rectangle to test for intersection. 
+ * @return        true if the bounding square of the circle 
+ *                with centre centre and radius radius intersects 
+ *                rect, false otherwise. 
  */
 bool intersects(const Point& centre, int radius, const Rect& rect) {
   Point tl = Point(centre.x - radius, centre.y - radius);
@@ -491,6 +517,9 @@ bool intersects(const Point& centre, int radius, const Rect& rect) {
  *
  * NB if circles is empty, will return a circle centred
  * at (0, 0) with a radius of 0.
+ *
+ * @param circles   the vector of circles 
+ * @return          the circle of largest radius in circles
  */
 vector<int> findMax(const vector<Vec3f> circles) {
   int max = 0;
@@ -512,14 +541,18 @@ vector<int> findMax(const vector<Vec3f> circles) {
 }
 
 /**
- * Updates the position of the iRat using the old method of simply
+ * Updates the position of the iRat/rat using the old method of simply
  * finding the coloured blob that is closest to the last known location
  * of the iRat. 
  * 
- * @param  colouredBlobs   [description]
- * @param  lastRobotLocs   [description]
- * @param  nowRobotLocs    [description]
- * @return                 [description]
+ * @param  possibleLocs    the possible locations of the object being tracked
+ * @param  lastLocs        the last known location of the object being tracked
+ * @param  nowLocs         the vector to put the new position of objects in.
+ * @return                 0 if the closest object is successfully found, 
+ *                         1 if there is no known last location, and the new location
+ *                         is updated as the first location in possibleLocs
+ *                         -1 if there are no possible locations; in this case 
+ *                         nothing is done and nowLocs is not updated.
  */
 int oldPositionUpdate(const vector<Point>& possibleLocs, const vector<Point>& lastLocs, 
   vector<Point>& nowLocs, bool override) {
@@ -548,16 +581,24 @@ int oldPositionUpdate(const vector<Point>& possibleLocs, const vector<Point>& la
  * Get the angle by which the iRat would have to turn in order to be 
  * facing the rat. 
  * 
- * @param  iRatLoc     [description]
- * @param  iRatHeading [description]
- * @param  ratLoc      [description]
- * @return             [description]
+ * @param  iRatLoc     the current location of the iRat on screen
+ * @param  iRatHeading the current heading vector of the iRat
+ * @param  ratLoc      the current location of the rat 
+ * @return             the angle the iRat would have to turn to face the rat directly.
  */
 double getTurningAngle(const Point& iRatLoc, const Point& iRatHeading, const Point& ratLoc) {
   Point iratRatVec = ratLoc - iRatLoc;
   return angleBetween(iratRatVec, iRatHeading);
 }
 
+/**
+ * Return the rotational velocity required for the iRat to follow the rat.
+ * 
+ * @param  iRatLoc     the current location of the iRat on screen
+ * @param  iRatHeading the current heading vector of the iRat
+ * @param  ratLoc      the current location of the rat 
+ * @return             the rotational velocity required for the iRat to follow the rat
+ */
 double getVrot(const Point& iRatLoc, const Point& iRatHeading, const Point& ratLoc) {
   double dir = getDir(iRatLoc, iRatHeading, ratLoc);
   float angle = getTurningAngle(iRatLoc, iRatHeading, ratLoc);
@@ -569,17 +610,49 @@ double getVrot(const Point& iRatLoc, const Point& iRatHeading, const Point& ratL
   return vrot;
 }
 
+/**
+ * Return the translational velocity required for the iRat to follow the rat.
+ * 
+ * @param  iRatLoc     the current location of the iRat on screen
+ * @param  iRatHeading the current heading vector of the iRat
+ * @param  ratLoc      the current location of the rat 
+ * @return             the translational velocity required for the iRat to follow the rat
+ */
 double getVtrans(const Point& iRatLoc, const Point& iRatHeading, const Point& ratLoc) {
   float angle = getTurningAngle(iRatLoc, iRatHeading, ratLoc);
   return MAX_VTRANS*sqrt(1-((angle*angle)/(PI*PI)));
 }
 
+/**
+ * Get the current heading vector of the iRat, as determined by looking at the 
+ * iRat's current position and the iRat's position goBack frames ago. 
+ *
+ * @param  history the previous locations of the iRat, in chronological order
+ * @param  goBack  the number of frames to go back through. 
+ * @return         the iRat's heading vector.
+ */
 Point getHeading(const vector<Point>& history, int goBack) {
   int histSize = history.size();
   Point oldPoint = histSize > goBack ? history[histSize-goBack] : history[0];
   return history[histSize-1] - oldPoint;
 }
 
+/**
+ * Update the kalman filter and the kalman filter's estimates (see
+ * kalmanPredict), and return the new estimate.
+ * 
+ * If possibleCorrections is empty, the filter is not updated, and 
+ * the last estimate is returned and added to estimates.
+ * If possibleCorrections is empty but there are no previous estimates,
+ * does nothing and returns the point at (0, 0).
+ * 
+ * @param  kf                  the kalman filter
+ * @param  estimates           the kalman filter's estimates to date
+ * @param  possibleCorrections the possible locations of the tracked object
+ * @param  override            whether or not user mouse input can override 
+ *                             the correction
+ * @return                     the new estimate of the kalman filter.
+ */
 Point updateKalman(KalmanFilter& kf, vector<Point>& estimates, 
   const vector<Point>& possibleCorrections, bool override) {
 
