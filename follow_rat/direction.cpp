@@ -23,6 +23,7 @@
 #define DELAY 50
 #define XPOS 0
 #define YPOS 1
+#define SPEEDMULTIPLIER 15
 
 
 using namespace std;
@@ -31,14 +32,14 @@ using namespace cv;
 struct test_t {
 	vector<float> msg; 			// Previous msg sent to iRat
 	vector<float> expt_out; 	// expected output
-	Point iRatLocation;  				
-	Point ratLocation;
-	Point iRatHeading;
+	Point2f iRatLocation;  				
+	Point2f ratLocation;
+	Point2f iRatHeading;
 };
 
 //GLOBAL
 int debug = 1;
-Point ratPos(-1, -1);
+Point2f ratPos(-1, -1);
 
 // HEADERS 
 /*
@@ -72,7 +73,7 @@ void print_failed(int test_num, test_t& test) {
  * @params 		v1 - First vector
  * @parmas 		v2 - second vector
  */
-float angleBetween(Point v1, Point v2) {
+float angleBetween(Point2f v1, Point2f v2) {
 	float len1 = sqrt(v1.x * v1.x + v1.y * v1.y);
 	float len2 = sqrt(v2.x * v2.x + v2.y * v2.y);
 
@@ -97,14 +98,14 @@ float angleBetween(Point v1, Point v2) {
  * @params		ratLocation - The rats location in the arena
  * @params 		iRatHeading - A vector of the iRats current direction
  */
-void set_msg(vector<float>& msg, Point& iRatLocation, 
-							Point& ratLocation, Point& iRatHeading) {
+void set_msg(vector<float>& msg, Point2f& iRatLocation, 
+							Point2f& ratLocation, Point2f& iRatHeading) {
 
-	Point diff = ratLocation - iRatLocation;
+	Point2f diff = ratLocation - iRatLocation;
 	float angle = angleBetween(iRatHeading, diff);
 	
 	// Which side is the rat on? (left or right)
-	//Point change = diff - 
+	//Point2f change = diff - 
 	
   msg[MAG] = 0.1;
   msg[VROT] = 0.0;
@@ -138,9 +139,9 @@ void createBasicEight(vector<test_t>& tests) {
 	tests.push_back(test_t{
 			vector<float>{0.0, 0.0}, // original msg
 			vector<float>{0.1, 0.0}, // output msg
-			Point(MIDSCREENX, MIDSCREENY), 
-			Point(MIDSCREENX, MIDSCREENY - 100), // directly above
-			Point(0, ARBMAG)  // TODO where is the x-axis in this system?
+			Point2f(MIDSCREENX, MIDSCREENY), 
+			Point2f(MIDSCREENX, MIDSCREENY - 100), // directly above
+			Point2f(0, ARBMAG)  // TODO where is the x-axis in this system?
 									// Assume (1, 1) points downwards to the right
 		});
 	/*
@@ -178,9 +179,9 @@ void create_tests(vector<test_t>& tests) {
 	tests.push_back(test_t{
 			vector<float>{0.0, 0.0}, // original msg
 			vector<float>{0.1, 0.0}, // output msg
-			Point(MIDSCREENX, MIDSCREENY), 
-			Point(MIDSCREENX, MIDSCREENY - 100), // directly above
-			Point(0, ARBMAG)  // TODO where is the x-axis in this system?
+			Point2f(MIDSCREENX, MIDSCREENY), 
+			Point2f(MIDSCREENX, MIDSCREENY - 100), // directly above
+			Point2f(0, ARBMAG)  // TODO where is the x-axis in this system?
 									// Assume (1, 1) points downwards to the right
 		});
 
@@ -222,13 +223,53 @@ struct polar_t {
 	float angle;
 };
 
+struct point_t {
+	float x;
+	float y;
+};
+
+/**
+ * Print out a Point
+ * @params 		p - the Cartesian point to print
+ */
+void printpoint(Point2f p) {
+	cout << "Point2f(" << p.x << ", " << p.y << ")" << endl;
+}
+
+/**
+ * Print out a polar Point2f
+ * @params 		p - the polar point to print
+ */
+void printpoint(polar_t p) {
+	cout << "polar_t(" << p.mag << ", " << p.angle << ")" << endl;
+}
 
 
 /**
- * Given a cartesian point return it's polar eqivalance
- * @params 		p - Point to convert
+ * Print out a named point
+ * @params		name - the name to give the point
+ * @params 		p - the polar point to print
  */
-polar_t cvtCart2Polar(Point p){
+void pnp(string name, polar_t p) {
+	cout << name << ": ";
+	printpoint(p);
+}
+
+/**
+ * Print out a named point
+ * @params		name - the name to give the point
+ * @params 		p - the cartesian point to print
+ */
+void pnp(string name, Point2f p) {
+	cout << name << ": ";
+	printpoint(p);
+}
+
+/**
+ * Given a cartesian point return it's polar eqivalance
+ * @params 		p - Point2f to convert
+ */
+polar_t cvtCart2Polar(Point2f p){
 	float r = sqrt( pow(p.x, 2)  + pow(p.y,2));  
 	float theta = atan(p.y/p.x);
 	polar_t result{r,theta};
@@ -239,27 +280,28 @@ polar_t cvtCart2Polar(Point p){
  * Convert given polar point to cartesian
  * @params 		p - polar point to convert
  */
-Point cvtPolar2Cart(polar_t p){
-	int x = (int) (p.mag * cos(p.angle));
-	int y = (int) (p.mag * sin(p.angle));
-	return Point(x, y);
+Point2f cvtPolar2Cart(polar_t p){
+	float x = p.mag * cos(p.angle);
+	float y = p.mag * sin(p.angle);
+	return Point2f(x, y);
 }
 
 /**
  * flip cartesian co-ords so we can think without y being backwards
  * @params		p - catesian point to convert
  */
-Point cvtPointFlipy(Point p){
-	return Point(p.x, p.y - SCREENY);
+Point2f cvtPointFlipy(Point2f p){
+	return Point2f(p.x, SCREENY - p.y);
 }
 
 /**
  * convert from flippy world to normal cartesian world
- * @params    p - Point in flippy world to convert
+ * @params    p - Point2f in flippy world to convert
  */
-Point cvtFlipyPoint(Point p) {
-  return Point(p.x, SCREENY + p.y);
+Point2f cvtFlipyPoint(Point2f p) {
+  return Point2f(p.x, SCREENY - p.y);
 }
+
 
 /**
  * Add two polar points together
@@ -267,23 +309,37 @@ Point cvtFlipyPoint(Point p) {
  * @params 		p2 - second polar point
  */
 polar_t addVecs(polar_t p1, polar_t p2) {
-	Point rc = cvtPolar2Cart(p1) + cvtPolar2Cart(p2);
-	return cvtCart2Polar(rc);
+	Point2f p1_cart = cvtPolar2Cart(p1);
+	Point2f p2_cart = cvtPolar2Cart(p2);
+	Point2f np = Point2f(p1_cart.x + p2_cart.x, p1_cart.y + p2_cart.y);
+	Point2f rc = p1_cart + p2_cart; 
+	polar_t result = cvtCart2Polar(rc);
+	/*
+	pnp("p1:", p1);
+	pnp("p2:", p2);
+	pnp("rc:", rc);
+	pnp("np", np);
+	pnp("p1_cart:", p1_cart);
+	pnp("p2_cart:", p2_cart);
+
+	pnp("result:", result);
+	*/
+	return result;
 }
 
 
 void callback(int event, int x, int y, int flags, void *userdata){
-  ratPos = cvtFlipyPoint(Point(x, y)); // remember to change to normal cart
+  ratPos = cvtFlipyPoint(Point2f(x, y)); // remember to change to normal cart
 }
-
 
 void run_visual(void){
 	Mat bg(SCREENY, SCREENX, CV_8UC3);
 	Mat img;
-	polar_t iratPos = cvtCart2Polar(cvtFlipyPoint(Point(MIDSCREENX, MIDSCREENY)));
+	polar_t iratPos = cvtCart2Polar(cvtFlipyPoint(Point2f(MIDSCREENX, MIDSCREENY)));
+	//pnp("original iratPos", iratPos);
+
   polar_t iratHeading_p{10.0, 0.0}; // have him point whatever flat is
   
-
 	string WINDOW_NAME = "Simulation";
 	namedWindow(WINDOW_NAME);
   setMouseCallback(WINDOW_NAME, callback, 0);
@@ -292,26 +348,57 @@ void run_visual(void){
 
   vector<float> msg{0.0, 0.0};
   polar_t deltaHeading;
+
+	/*
+	// TODO remove this testing code
+	polar_t pp{50, 0};
 	while(1) {
 		img = bg.clone();
-    Point headingPoint = cvtPointFlipy(cvtPolar2Cart(iratHeading_p));
-    Point iratloc = cvtPointFlipy(cvtPolar2Cart(iratPos)); // iratLoc 
-    Point ratloc = cvtPointFlipy(ratPos);                // ratLoc
+		circle(img, 
+				cvtPointFlipy(cvtPolar2Cart(pp)), 
+				5,
+				Scalar(255, 0, 0));
+		//printpoint(pp);
+		pp.angle = pp.angle + 0.01;
+		
+		here("cvtPolar2Cart result:");
+		printpoint(cvtPolar2Cart(pp));
+
+		here("screen position:");
+		printpoint( cvtPointFlipy(cvtPolar2Cart(pp)) );
+
+		imshow(WINDOW_NAME, img);
+		waitKey(DELAY);
+	}
+	*/
+
+
+	while(1) {
+		img = bg.clone();
+    Point2f headingPoint = cvtPointFlipy(cvtPolar2Cart(iratHeading_p));
+    Point2f iratloc = cvtPointFlipy(cvtPolar2Cart(iratPos)); // iratLoc 
+    Point2f ratloc = cvtPointFlipy(ratPos);                // ratLoc
 	  set_msg(msg, iratloc, ratloc, headingPoint);
     // Now convert the msg sent into polar so we can use it
-    deltaHeading.mag = msg[MAG];
+    deltaHeading.mag = msg[MAG] * SPEEDMULTIPLIER;
     deltaHeading.angle = msg[VROT];
 
+		// Update the iRats heading direction
+		//TODO
+
+	
     // Now update iRat position based on new movement
     iratPos = addVecs(iratPos, deltaHeading);
 
-    cout << "delta " << cvtPointFlipy(cvtPolar2Cart(iratPos)) << endl;
     // Draw iRat
     int iratSize = 5;
     circle(img, 
         cvtPointFlipy(cvtPolar2Cart(iratPos)),
         iratSize,
         Scalar(255, 0 ,0)); 
+
+		//pnp("iRatPos", iratPos);
+		//pnp("deltaHeading", deltaHeading);
 
 		imshow(WINDOW_NAME, img);
 		waitKey(DELAY);
