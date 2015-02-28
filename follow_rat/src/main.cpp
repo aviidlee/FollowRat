@@ -442,13 +442,12 @@ void removePoint(vector<Point>& points, const Point& exclude) {
  * @param  v2 the second vector 
  * @return    the angle between v1 and v2 in radians, value in [0, Pi].
  */
-float angleBetween(Point v1, Point v2) {
-	float len1 = sqrt(v1.x * v1.x + v1.y * v1.y);
-	float len2 = sqrt(v2.x * v2.x + v2.y * v2.y);
+double angleBetween(Point v1, Point v2) {
+	double len1 = sqrt(v1.x * v1.x + v1.y * v1.y);
+	double len2 = sqrt(v2.x * v2.x + v2.y * v2.y);
+	double dot = v1.x * v2.x + v1.y * v2.y;
 
-	float dot = v1.x * v2.x + v1.y * v2.y;
-
-	float a = dot / (len1 * len2);
+	double a = dot / (len1 * len2);
 
 	if (a >= 1.0) {
 		return 0.0;
@@ -601,7 +600,7 @@ double getTurningAngle(const Point& iRatLoc, const Point& iRatHeading, const Poi
  */
 double getVrot(const Point& iRatLoc, const Point& iRatHeading, const Point& ratLoc) {
   double dir = getDir(iRatLoc, iRatHeading, ratLoc);
-  float angle = getTurningAngle(iRatLoc, iRatHeading, ratLoc);
+  double angle = getTurningAngle(iRatLoc, iRatHeading, ratLoc);
   double vrot = dir*MAX_VROT;
   if(angle < PI/6) {
     // if turning angle is small, then just turn a little bit :)
@@ -619,8 +618,9 @@ double getVrot(const Point& iRatLoc, const Point& iRatHeading, const Point& ratL
  * @return             the translational velocity required for the iRat to follow the rat
  */
 double getVtrans(const Point& iRatLoc, const Point& iRatHeading, const Point& ratLoc) {
-  float angle = getTurningAngle(iRatLoc, iRatHeading, ratLoc);
-  return MAX_VTRANS*sqrt(1-((angle*angle)/(PI*PI)));
+  double angle = getTurningAngle(iRatLoc, iRatHeading, ratLoc);
+  double vtrans = MAX_VTRANS*sqrt(1-((angle*angle)/(PI*PI)));
+	return vtrans;
 }
 
 /**
@@ -749,6 +749,8 @@ int main(int argc, char** argv) {
   Mat_<float> iRatMeas(2, 1);
   vector<Point> iRatKalmanEstim;
   bool iRatKalmanInit = false;
+	
+	Point lastHeading;
 
   if(argc >= 4) {
 
@@ -970,6 +972,11 @@ int main(int argc, char** argv) {
         debugMsg("Finding velocity with both Kalmans initialised!");
         int size = iRatKalmanEstim.size();
         heading = getHeading(iRatKalmanEstim, maxHistCount);
+				if(heading == Point(0, 0)) {
+					heading = lastHeading;
+				} else {
+					lastHeading = heading;
+				}
 				vrot = getVrot(iRatKalmanEstim[size-1], heading, kalmanEstim[kalmanEstim.size()-1]);
         vtrans = getVtrans(iRatKalmanEstim[size-1], heading, kalmanEstim[kalmanEstim.size()-1]);
 			} else { // Kalman not initialised
@@ -979,9 +986,6 @@ int main(int argc, char** argv) {
         vtrans = getVtrans(nowRobotLocs[0], heading, nowRatLocs[0]);
       }
 
-			stringstream ss;
-      ss << vrot;
-      putText(origFrame, ss.str(), Point(30, 30), FONT, 0.5, blue, 2);    
       debugMsg("Worked out which way to turn");
     }
 
@@ -989,10 +993,11 @@ int main(int argc, char** argv) {
 		
 		if(rangerVals[CENTRE] < 0.15) {
 			vtrans = 0;
-		} else {
-			vtrans = MAX_VTRANS;
 		}
 
+		stringstream ss;
+		ss << "vrot: " << vrot << ", vtrans: " << vtrans;
+		putText(origFrame, ss.str(), Point(30, 30), FONT, 0.5, blue, 2);    
     imshow("Original frame", origFrame);
     writer.write(origFrame);
     
